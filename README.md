@@ -46,7 +46,7 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 {
   "name": "RabbitSourceConnector",
   "config": {
-    "connector.class": "com.altenar.RabbitSourceConnector",
+    "connector.class": "com.github.maksimgr.RabbitSourceConnector",
     "tasks.max": "1",
     "rabbitmq.host": "localhost",
     "rabbitmq.port": "5672",
