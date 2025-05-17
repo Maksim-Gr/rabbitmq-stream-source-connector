@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka1:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:9093
+      KAFKA_LISTENER_NAMES: PLAINTEXT
+      KAFKA_LISTENER_PORT: 9093
+      KAFKA_LISTENER_HOSTNAME: kafka1
+      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+
+  kafka2:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:9094
+      KAFKA_LISTENER_NAMES: PLAINTEXT
+      KAFKA_LISTENER_PORT: 9094
+      KAFKA_LISTENER_HOSTNAME: kafka2
+      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+
+  kafka3:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9095:9095"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:9095
+      KAFKA_LISTENER_NAMES: PLAINTEXT
+      KAFKA_LISTENER_PORT: 9095
+      KAFKA_LISTENER_HOSTNAME: kafka3
+      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "5552:5552"
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '-rabbitmq_stream advertised_host rabbitmq'  # Use the service name here
+    command: >
+      bash -c "
+        rabbitmq-plugins enable --offline rabbitmq_stream &&
+        rabbitmq-plugins enable --offline rabbitmq_stream_management &&
+        rabbitmq-server
+      "
+
+  connect:
+    image: confluentinc/cp-kafka-connect:7.5.0
+    depends_on:
+      - kafka1
+      - kafka2
+      - kafka3
+      - rabbitmq
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka1:9093,kafka2:9094,kafka3:9095
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: "rabbit-source-connect"
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/etc/kafka-connect/jars"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "localhost"
+      RABBITMQ_HOST: "rabbitmq"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TOPIC_CREATION_REPLICATION_FACTOR: 3
+    volumes:
+      - /Users/maksim/Desktop/workRepos/rabbitmq-source-connector/build/libs:/etc/kafka-connect/jars
+    command:
+      - bash
+      - -c
+      - |
+        while [ ! -f /etc/kafka-connect/jars/rabbitmq-source-connector-1.0-SNAPSHOT.jar ]; do sleep 1; done
+        /etc/confluent/docker/run
+
+volumes:
+  rabbitmq_stream_plugins:
