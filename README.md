@@ -1,5 +1,5 @@
 # RabbitMQ streams source connector
-RabbitMQ source connector for reading data from rabbitmq streams and write to kafka
+A Kotlin-based Kafka Connect Source Connector for RabbitMQ Streams.
 
 ## Installation
 Follow these steps to install and deploy the RabbitMQ Source Connector:
@@ -28,7 +28,7 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 
 | Property                                   | Description                   |
 |--------------------------------------------|-------------------------------|
-| connector.class                             | Connector class to use, must be `com.altenar.RabbitSourceConnector` |
+| connector.class                             | Connector class to use, must be `com.github.maksimgr.RabbitSourceConnector` |
 | tasks.max                                   | Maximum number of tasks to run |
 | rabbitmq.host                               | Hostname of the RabbitMQ broker |
 | rabbitmq.port                               | Port of the RabbitMQ broker   |
