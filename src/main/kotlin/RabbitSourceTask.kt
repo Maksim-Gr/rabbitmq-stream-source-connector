@@ -70,14 +70,8 @@ class RabbitSourceTask : SourceTask() {
             config.getList("rabbitmq.queue").firstOrNull()
                 ?: throw IllegalArgumentException("rabbitmq queue must be provided")
 
-        val offsetSpec =
-            when (config.getString("rabbitmq.offset")) {
-                "first" -> OffsetSpecification.first()
-                "last" -> OffsetSpecification.last()
-                "next" -> OffsetSpecification.next()
-
-                else -> OffsetSpecification.first()
-            }
+        val offsetStr = config.getString("rabbitmq.offset")
+        val offsetSpec = RabbiOffsetResolver.resolveOffset(offsetStr)
         logger.info("RabbitSourceTask initializing connection")
 
         consumer =
