@@ -5,8 +5,8 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 object RabbiOffsetResolver {
-    private val timeStampPattern = Regex("""\d{2}\.\d{2}\.\d{4}\d{2}:\d{2}:\d{2}""")
-    private val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyyHH:mm:ss")
+    private val timeStampPattern = Regex("""\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}""")
+    private val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
 
     fun resolveOffset(offsetStr: String): OffsetSpecification {
         return when (offsetStr.lowercase()) {

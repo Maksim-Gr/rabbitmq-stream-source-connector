@@ -3,6 +3,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 class RabbiOffsetResolverTest {
@@ -32,11 +33,11 @@ class RabbiOffsetResolverTest {
     @Test
     @DisplayName("Should parse valid timestamp into OffsetSpecification.timestamp")
     fun testValidTimestamp() {
-        val input = "2023-01-01 12:00:00"
-        val expectedTimestamp = LocalDateTime.parse(input, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-            .toEpochSecond(java.time.ZoneOffset.UTC)
+        val input = "01.01.2024 12:00:00"
+        val expectedTimestamp = LocalDateTime.parse(input, DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
+            .toEpochSecond(ZoneOffset.UTC)
 
         val result = RabbiOffsetResolver.resolveOffset(input)
-        assertEquals(result, OffsetSpecification.timestamp(expectedTimestamp))
+        assertEquals(OffsetSpecification.timestamp(expectedTimestamp), result)
     }
 }
