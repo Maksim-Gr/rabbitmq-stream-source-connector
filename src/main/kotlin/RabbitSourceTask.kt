@@ -1,5 +1,4 @@
 import com.rabbitmq.stream.Environment
-import com.rabbitmq.stream.OffsetSpecification
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTask

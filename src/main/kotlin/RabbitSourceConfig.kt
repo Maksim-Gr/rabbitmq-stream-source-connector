@@ -167,7 +167,6 @@ class RabbitSourceConfig(
                     ConfigDef.Width.SHORT,
                     // displayName =
                     "Handshake Timeout (ms)",
-
                 ).define(
                     // name =
                     CONFIG_NAME_RABBITMQ_OFFSET,
