@@ -36,7 +36,6 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.password                           | Password for connecting to RabbitMQ |
 | rabbitmq.virtual.host                       | Virtual host on RabbitMQ to connect to |
 | rabbitmq.queue                              | Name of the RabbitMQ queue to consume from |
-| rabbitmq.handshake.timeout.ms               | Timeout in milliseconds for RabbitMQ handshake |
 | rabbitmq.offset                             | Initial offset to consume from, e.g., `first` |
 | kafka.topic                                 | Kafka topic where the data should be published |
 
@@ -54,9 +53,8 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
     "rabbitmq.password": "guest",
     "rabbitmq.virtual.host": "/",
     "rabbitmq.queue": "queue_name_here",
-    "rabbitmq.handshake.timeout.ms": "10000",
     "rabbitmq.offset": "first",
-    "kafka.topic": "your_kafka_topic",
+    "kafka.topic": "your_kafka_topic"
   }
 }
 ```
