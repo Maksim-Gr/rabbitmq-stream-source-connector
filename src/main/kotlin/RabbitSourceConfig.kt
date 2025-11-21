@@ -12,9 +12,6 @@ class RabbitSourceConfig(
         private const val RABBITMQ_USERNAME = "rabbitmq.username"
         private const val RABBITMQ_PASSWORD = "rabbitmq.password"
         private const val RABBITMQ_VIRTUAL_HOST = "rabbitmq.virtual.host"
-        private const val RABBITMQ_REQUESTED_FRAME_MAX = "rabbitmq.requested.frame.max"
-        private const val RABBITMQ_HANDSHAKE_TIMEOUT = "rabbitmq.handshake.timeout.ms"
-        private const val RABBITMQ_REQUESTED_HEARTBEAT = "rabbitmq.requested.heartbeat.seconds"
         private const val CONFIG_NAME_RABBITMQ_OFFSET = "rabbitmq.offset"
 
         val CONFIG: ConfigDef =
@@ -148,25 +145,6 @@ class RabbitSourceConfig(
                     ConfigDef.Width.MEDIUM,
                     // displayName =
                     "RabbitMQ Virtual Host",
-                ).define(
-                    // name =
-                    RABBITMQ_HANDSHAKE_TIMEOUT,
-                    // type =
-                    ConfigDef.Type.INT,
-                    // defaultValue =
-                    10000,
-                    // importance =
-                    ConfigDef.Importance.LOW,
-                    // documentation =
-                    "The AMQP 0-9-1 handshake timeout in milliseconds (default 10 seconds).",
-                    // group =
-                    "Advanced Settings",
-                    // orderInGroup =
-                    -1,
-                    // width =
-                    ConfigDef.Width.SHORT,
-                    // displayName =
-                    "Handshake Timeout (ms)",
                 ).define(
                     // name =
                     CONFIG_NAME_RABBITMQ_OFFSET,

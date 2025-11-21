@@ -64,7 +64,7 @@ tasks.test {
     }
 }
 kotlin {
-    jvmToolchain(11)
+    jvmToolchain(17)
 }
 tasks.jar {
     val dependencies =
