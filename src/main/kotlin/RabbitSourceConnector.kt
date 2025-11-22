@@ -36,10 +36,11 @@ class RabbitSourceConnector : SourceConnector() {
 
         queues.forEachIndexed { index, queue ->
             val taskIndex = index % numTasks
-            val cfg = taskConfigs[taskIndex]
-            val existing = cfg["rabbitmq.queue"]
+            val taskCfg = taskConfigs[taskIndex]
 
-            cfg["rabbitmq.queue"] = if (existing != null) "$existing,$queue" else queue
+            val existingQueues = taskCfg["rabbitmq.queue"]
+            taskCfg["rabbitmq.queue"] = if (existingQueues.isNullOrBlank()) queue
+            else "$existingQueues,$queue"
         }
         return taskConfigs
     }
