@@ -4,6 +4,7 @@ import org.junit.jupiter.api.assertDoesNotThrow
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class RabbitSourceConnectorTest {
     private lateinit var connector: RabbitSourceConnector
@@ -11,7 +12,7 @@ class RabbitSourceConnectorTest {
     private val config =
         mapOf(
             "kafka.topic" to "your_kafka_topic",
-            "rabbitmq.queue" to "queue_name_here",
+            "rabbitmq.queue" to "test_queue",
             "rabbitmq.host" to "localhost",
             "rabbitmq.port" to "5672",
             "rabbitmq.username" to "guest",
@@ -65,5 +66,26 @@ class RabbitSourceConnectorTest {
     @org.junit.jupiter.api.Test
     fun testStop() {
         assertDoesNotThrow { connector.stop() }
+    }
+
+    @org.junit.jupiter.api.Test
+    fun `taskConfigs should create correct number of tasks`() {
+        connector.start(config.toMutableMap())
+        val taskConfigs = connector.taskConfigs(3)
+
+        // only 1 queue => only 1 task
+        assertEquals(1, taskConfigs.size)
+        assertEquals("test_queue", taskConfigs[0]["rabbitmq.queue"])
+    }
+
+    @org.junit.jupiter.api.Test
+    fun `taskConfigs should distribute multiple queues`() {
+        val multiConfig = config.toMutableMap()
+        multiConfig["rabbitmq.queue"] = "test_queue,test_queue_2,test_queue_3"
+        connector.start(multiConfig)
+        val taskConfigs = connector.taskConfigs(3)
+        assertEquals(3, taskConfigs.size)
+        val queues = taskConfigs.flatMap { it["rabbitmq.queue"]!!.split(",") }
+        assertTrue { queues.containsAll(listOf("test_queue", "test_queue_2", "test_queue_3")) }
     }
 }

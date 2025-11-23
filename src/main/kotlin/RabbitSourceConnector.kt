@@ -32,15 +32,19 @@ class RabbitSourceConnector : SourceConnector() {
         }
         val numTasks = minOf(queues.size, maxTasks)
 
-        val taskConfigs = MutableList(numTasks) { HashMap(settings) }
+        val taskConfigs =
+            MutableList(numTasks) {
+                HashMap(settings).apply {
+                    remove("rabbitmq.queue")
+                }
+            }
 
         queues.forEachIndexed { index, queue ->
             val taskIndex = index % numTasks
             val taskCfg = taskConfigs[taskIndex]
 
-            val existingQueues = taskCfg["rabbitmq.queue"]
-            taskCfg["rabbitmq.queue"] = if (existingQueues.isNullOrBlank()) queue
-            else "$existingQueues,$queue"
+            val existing = taskCfg["rabbitmq.queue"]
+            taskCfg["rabbitmq.queue"] = existing?.let { "$it,$queue" } ?: queue
         }
         return taskConfigs
     }
