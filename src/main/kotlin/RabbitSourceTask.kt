@@ -65,7 +65,7 @@ class RabbitSourceTask : SourceTask() {
     }
 
     private fun initializeConnection() {
-        val queueNames = config.getString("rabbitmq.queue").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val queueNames = config.getList("rabbitmq.queue").map { it.trim() }.filter { it.isNotEmpty() }
         if (queueNames.isEmpty()) {
             throw IllegalArgumentException("rabbitmq queue must be provided")
         }

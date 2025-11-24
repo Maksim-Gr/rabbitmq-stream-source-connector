@@ -13,6 +13,8 @@ class RabbitSourceConfig(
         private const val RABBITMQ_PASSWORD = "rabbitmq.password"
         private const val RABBITMQ_VIRTUAL_HOST = "rabbitmq.virtual.host"
         private const val CONFIG_NAME_RABBITMQ_OFFSET = "rabbitmq.offset"
+        private const val RABBITMQ_REQUESTED_HEARTBEAT = "rabbitmq.requested.heartbeat.seconds"
+        private const val RABBITMQ_REQUESTED_FRAME_MAX = "rabbitmq.requested.frame.max"
 
         val CONFIG: ConfigDef =
             ConfigDef()
@@ -164,6 +166,27 @@ class RabbitSourceConfig(
                     ConfigDef.Width.SHORT,
                     // displayName =
                     "Offest position",
+                ).define(
+                    RABBITMQ_REQUESTED_HEARTBEAT,
+                    ConfigDef.Type.INT,
+                    60,
+                    ConfigDef.Importance.MEDIUM,
+                    "Requested heartbeat in seconds for the RabbitMQ Streams connection.",
+                    "Advanced Settings",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Requested Heartbeat",
+                )
+                .define(
+                    RABBITMQ_REQUESTED_FRAME_MAX,
+                    ConfigDef.Type.INT,
+                    1048576,
+                    ConfigDef.Importance.MEDIUM,
+                    "Maximum frame size requested for the RabbitMQ Streams connection.",
+                    "Advanced Settings",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Requested Frame Max",
                 )
     }
 }

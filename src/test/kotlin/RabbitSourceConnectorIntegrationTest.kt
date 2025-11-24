@@ -41,7 +41,6 @@ class RabbitSourceConnectorIntegrationTest {
                 "rabbitmq.username" to "guest",
                 "rabbitmq.password" to "guest",
                 "rabbitmq.virtual.host" to "/",
-                "rabbitmq.requested.frame.max" to "0",
                 "rabbitmq.handshake.timeout.ms" to "30000",
                 "rabbitmq.requested.heartbeat.seconds" to "60",
                 "rabbitmq.offset" to "first",
