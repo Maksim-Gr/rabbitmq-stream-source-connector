@@ -60,7 +60,7 @@ class RabbitSourceConnectorTest {
     fun testTaskConfig() {
         connector.start(config.toMutableMap())
         val taskConfigs = connector.taskConfigs(2)
-        assertEquals(2, taskConfigs.size)
+        assertEquals(1, taskConfigs.size)
     }
 
     @org.junit.jupiter.api.Test

@@ -16,7 +16,7 @@ class RabbitSourceTask : SourceTask() {
 
     private lateinit var config: RabbitSourceConfig
     private lateinit var environment: Environment
-    private lateinit var consumer: com.rabbitmq.stream.Consumer
+    private val consumers = mutableListOf<com.rabbitmq.stream.Consumer>()
 
     private val messageQueue = ConcurrentLinkedQueue<SourceRecord>()
     private val running = AtomicBoolean(false)
@@ -47,7 +47,7 @@ class RabbitSourceTask : SourceTask() {
     override fun stop() {
         logger.info("Stopping RabbitSourceTask")
         running.set(false)
-        consumer.close()
+        consumers.forEach { it.close() }
         environment.close()
         logger.info("RabbitSourceTask stopped")
     }
@@ -65,39 +65,41 @@ class RabbitSourceTask : SourceTask() {
     }
 
     private fun initializeConnection() {
-        val queueName =
-            config.getList("rabbitmq.queue").firstOrNull()
-                ?: throw IllegalArgumentException("rabbitmq queue must be provided")
-
+        val queueNames = config.getString("rabbitmq.queue").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (queueNames.isEmpty()) {
+            throw IllegalArgumentException("rabbitmq queue must be provided")
+        }
         val offsetStr = config.getString("rabbitmq.offset")
         val offsetSpec = RabbiOffsetResolver.resolveOffset(offsetStr)
         logger.info("RabbitSourceTask initializing connection")
 
-        consumer =
-            environment
-                .consumerBuilder()
-                .stream(queueName)
-                .offset(offsetSpec)
-                .messageHandler { ctx, msg ->
-                    val offset = ctx.offset()
-                    val body = String(msg.bodyAsBinary, StandardCharsets.UTF_8)
-                    logger.debug("Received message at offset $offset with body: $body")
+        queueNames.forEach { queueName ->
+            val consumer =
+                environment.consumerBuilder()
+                    .stream(queueName)
+                    .offset(offsetSpec)
+                    .messageHandler { ctx, msg ->
+                        val offset = ctx.offset()
+                        val body = String(msg.bodyAsBinary, StandardCharsets.UTF_8)
+                        logger.debug("Received message at offset $offset with body: $body")
 
-                    val record =
-                        SourceRecord(
-                            mapOf("queue" to queueName),
-                            mapOf("offset" to offset),
-                            config.getString("kafka.topic"),
-                            null,
-                            null,
-                            null,
-                            Schema.STRING_SCHEMA,
-                            body,
-                        )
+                        val record =
+                            SourceRecord(
+                                mapOf("queue" to queueName),
+                                mapOf("offset" to offset),
+                                config.getString("kafka.topic"),
+                                null,
+                                null,
+                                null,
+                                Schema.STRING_SCHEMA,
+                                body,
+                            )
 
-                    messageQueue.add(record)
-                }.build()
-
-        logger.info("Started consuming RabbitMQ stream: $queueName from offset: $offsetSpec")
+                        messageQueue.add(record)
+                    }
+                    .build()
+            consumers.add(consumer)
+        }
+        logger.info("Started consuming RabbitMQ streams: $queueNames from offset: $offsetSpec")
     }
 }
