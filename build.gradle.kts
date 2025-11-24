@@ -62,6 +62,18 @@ tasks.test {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showStandardStreams = true
     }
+    exclude("**/*IntegrationTest/.*")
+}
+
+val integrationTest by tasks.registering(Test::class) {
+    useJUnitPlatform()
+    reports.html.required.set(true)
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+    include("**/*IntegrationTest/.*")
 }
 kotlin {
     jvmToolchain(17)
