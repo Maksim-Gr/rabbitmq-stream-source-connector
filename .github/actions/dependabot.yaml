@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+      testcontainers:
+        patterns:
+          - "org.testcontainers*"
+      junit:
+        patterns:
+          - "org.junit*"
+          - "org.mockito*"

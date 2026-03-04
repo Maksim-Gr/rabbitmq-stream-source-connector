@@ -16,7 +16,6 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
-    mavenCentral()
     maven { url = uri("https://packages.confluent.io/maven/") }
     maven { url = uri("https://jitpack.io") }
 }
@@ -33,7 +32,6 @@ dependencies {
     testImplementation("org.sourcelab:kafka-connect-client:4.0.3")
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.4")
     implementation("ch.qos.logback:logback-classic:1.5.13")
-    testImplementation("org.mockito:mockito-core:3.12.4")
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2") // JUnit Jupiter
     testRuntimeOnly("org.junit.platform:junit-platform-launcher") // JUnit Platform Launcher
     implementation("com.rabbitmq:stream-client:0.16.0")
