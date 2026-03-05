@@ -32,10 +32,10 @@ dependencies {
     testImplementation("org.sourcelab:kafka-connect-client:4.0.3")
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.4")
     implementation("ch.qos.logback:logback-classic:1.5.13")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.9.2") // JUnit Jupiter
+    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3") // JUnit Jupiter
     testRuntimeOnly("org.junit.platform:junit-platform-launcher") // JUnit Platform Launcher
     implementation("com.rabbitmq:stream-client:0.16.0")
-    testImplementation("org.mockito:mockito-core:5.5.0")
+    testImplementation("org.mockito:mockito-core:5.22.0")
     testImplementation("org.testcontainers:junit-jupiter:1.21.4")
     testImplementation("org.testcontainers:rabbitmq:1.21.4")
     testImplementation("com.rabbitmq:amqp-client:5.18.0")
