@@ -4,7 +4,7 @@ val currentDateTime: LocalDateTime = LocalDateTime.now()
 
 plugins {
     `java-library`
-    kotlin("jvm") version "2.1.0"
+    kotlin("jvm") version "2.3.0"
     id("com.palantir.git-version") version "1.0.0"
     kotlin("plugin.serialization") version "1.5.0"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
@@ -22,10 +22,10 @@ repositories {
 
 dependencies {
     implementation("org.apache.kafka:connect-api:3.4.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.4.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     implementation("org.slf4j:slf4j-api:2.0.6")
     implementation("commons-validator:commons-validator:1.7")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     testImplementation("io.confluent:kafka-connect-avro-converter:7.3.0")
     testImplementation("com.github.christophschubert:cp-testcontainers:v0.2.1")
     testImplementation("org.testcontainers:kafka:1.19.6")
