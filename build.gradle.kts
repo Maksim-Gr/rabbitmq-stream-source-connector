@@ -28,7 +28,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     testImplementation("io.confluent:kafka-connect-avro-converter:7.3.0")
     testImplementation("com.github.christophschubert:cp-testcontainers:v0.2.1")
-    testImplementation("org.testcontainers:kafka:1.19.6")
+    testImplementation("org.testcontainers:kafka:1.21.4")
     testImplementation("org.sourcelab:kafka-connect-client:4.0.3")
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.4")
     implementation("ch.qos.logback:logback-classic:1.5.13")
@@ -36,8 +36,8 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher") // JUnit Platform Launcher
     implementation("com.rabbitmq:stream-client:0.16.0")
     testImplementation("org.mockito:mockito-core:5.5.0")
-    testImplementation("org.testcontainers:junit-jupiter:1.19.0")
-    testImplementation("org.testcontainers:rabbitmq:1.19.0")
+    testImplementation("org.testcontainers:junit-jupiter:1.21.4")
+    testImplementation("org.testcontainers:rabbitmq:1.21.4")
     testImplementation("com.rabbitmq:amqp-client:5.18.0")
     testImplementation(kotlin("test"))
 }
