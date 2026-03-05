@@ -21,7 +21,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.apache.kafka:connect-api:3.4.0")
+    implementation("org.apache.kafka:connect-api:4.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     implementation("org.slf4j:slf4j-api:2.0.6")
     implementation("commons-validator:commons-validator:1.7")
