@@ -30,7 +30,7 @@ dependencies {
     testImplementation("com.github.christophschubert:cp-testcontainers:v0.2.1")
     testImplementation("org.testcontainers:kafka:1.21.4")
     testImplementation("org.sourcelab:kafka-connect-client:4.0.3")
-    testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.4")
+    testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
     implementation("ch.qos.logback:logback-classic:1.5.13")
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.3") // JUnit Jupiter
     testRuntimeOnly("org.junit.platform:junit-platform-launcher") // JUnit Platform Launcher
