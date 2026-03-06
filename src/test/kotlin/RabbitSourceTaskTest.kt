@@ -1,3 +1,5 @@
+package com.github.maksimgr
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 

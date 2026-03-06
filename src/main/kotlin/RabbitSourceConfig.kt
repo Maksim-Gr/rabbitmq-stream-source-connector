@@ -1,5 +1,8 @@
+package com.github.maksimgr
+
 import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.config.ConfigDef
+import org.apache.kafka.common.config.ConfigException
 
 class RabbitSourceConfig(
     props: MutableMap<*, *>,
@@ -16,6 +19,28 @@ class RabbitSourceConfig(
         private const val RABBITMQ_REQUESTED_HEARTBEAT = "rabbitmq.requested.heartbeat.seconds"
         private const val RABBITMQ_REQUESTED_FRAME_MAX = "rabbitmq.requested.frame.max"
 
+        private val NON_EMPTY_STRING_VALIDATOR = ConfigDef.Validator { name, value ->
+            if (value is String && value.trim().isEmpty()) {
+                throw ConfigException(name, value, "Value must not be empty")
+            }
+        }
+
+        private val PORT_RANGE_VALIDATOR = ConfigDef.Range.between(1, 65535)
+
+        private val OFFSET_VALIDATOR = ConfigDef.Validator { name, value ->
+            if (value is String) {
+                val normalized = value.trim().lowercase()
+                if (normalized !in setOf("first", "last", "next")) {
+                    // Try to parse as timestamp
+                    try {
+                        java.time.LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
+                    } catch (e: Exception) {
+                        throw ConfigException(name, value, "Must be 'first', 'last', 'next', or timestamp format 'dd.MM.yyyy HH:mm:ss'")
+                    }
+                }
+            }
+        }
+
         val CONFIG: ConfigDef =
             ConfigDef()
                 .define(
@@ -23,6 +48,10 @@ class RabbitSourceConfig(
                     CONFIG_NAME_DESTINATION_KAFKA_TOPIC,
                     // type =
                     ConfigDef.Type.STRING,
+                    // defaultValue =
+                    ConfigDef.NO_DEFAULT_VALUE,
+                    // validator =
+                    NON_EMPTY_STRING_VALIDATOR,
                     // importance =
                     ConfigDef.Importance.HIGH,
                     // documentation =
@@ -59,6 +88,8 @@ class RabbitSourceConfig(
                     ConfigDef.Type.STRING,
                     // defaultValue =
                     "localhost",
+                    // validator =
+                    NON_EMPTY_STRING_VALIDATOR,
                     // importance =
                     ConfigDef.Importance.HIGH,
                     // documentation =
@@ -78,6 +109,8 @@ class RabbitSourceConfig(
                     ConfigDef.Type.INT,
                     // defaultValue =
                     5552,
+                    // validator =
+                    PORT_RANGE_VALIDATOR,
                     // importance =
                     ConfigDef.Importance.MEDIUM,
                     // documentation =
@@ -113,7 +146,7 @@ class RabbitSourceConfig(
                     // name =
                     RABBITMQ_PASSWORD,
                     // type =
-                    ConfigDef.Type.STRING,
+                    ConfigDef.Type.PASSWORD,
                     // defaultValue =
                     "guest",
                     // importance =
@@ -154,6 +187,8 @@ class RabbitSourceConfig(
                     ConfigDef.Type.STRING,
                     // defaultValue =
                     "first",
+                    // validator =
+                    OFFSET_VALIDATOR,
                     // importance =
                     ConfigDef.Importance.MEDIUM,
                     // documentation =
@@ -165,7 +200,7 @@ class RabbitSourceConfig(
                     // width =
                     ConfigDef.Width.SHORT,
                     // displayName =
-                    "Offest position",
+                    "Offset position",
                 ).define(
                     RABBITMQ_REQUESTED_HEARTBEAT,
                     ConfigDef.Type.INT,

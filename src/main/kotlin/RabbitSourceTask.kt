@@ -1,3 +1,5 @@
+package com.github.maksimgr
+
 import com.rabbitmq.stream.Environment
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.source.SourceRecord
@@ -6,6 +8,7 @@ import org.slf4j.LoggerFactory
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
 class RabbitSourceTask : SourceTask() {
@@ -16,7 +19,7 @@ class RabbitSourceTask : SourceTask() {
 
     private lateinit var config: RabbitSourceConfig
     private lateinit var environment: Environment
-    private val consumers = mutableListOf<com.rabbitmq.stream.Consumer>()
+    private val consumers = CopyOnWriteArrayList<com.rabbitmq.stream.Consumer>()
 
     private val messageQueue = ConcurrentLinkedQueue<SourceRecord>()
     private val running = AtomicBoolean(false)
@@ -48,6 +51,8 @@ class RabbitSourceTask : SourceTask() {
         logger.info("Stopping RabbitSourceTask")
         running.set(false)
         consumers.forEach { it.close() }
+        consumers.clear()
+        messageQueue.clear()
         environment.close()
         logger.info("RabbitSourceTask stopped")
     }
@@ -70,7 +75,7 @@ class RabbitSourceTask : SourceTask() {
             throw IllegalArgumentException("rabbitmq queue must be provided")
         }
         val offsetStr = config.getString("rabbitmq.offset")
-        val offsetSpec = RabbiOffsetResolver.resolveOffset(offsetStr)
+        val offsetSpec = RabbitOffsetResolver.resolveOffset(offsetStr)
         logger.info("RabbitSourceTask initializing connection")
 
         queueNames.forEach { queueName ->
@@ -79,23 +84,27 @@ class RabbitSourceTask : SourceTask() {
                     .stream(queueName)
                     .offset(offsetSpec)
                     .messageHandler { ctx, msg ->
-                        val offset = ctx.offset()
-                        val body = String(msg.bodyAsBinary, StandardCharsets.UTF_8)
-                        logger.debug("Received message at offset $offset with body: $body")
+                        try {
+                            val offset = ctx.offset()
+                            val body = String(msg.bodyAsBinary, StandardCharsets.UTF_8)
+                            logger.debug("Received message at offset $offset with body: $body")
 
-                        val record =
-                            SourceRecord(
-                                mapOf("queue" to queueName),
-                                mapOf("offset" to offset),
-                                config.getString("kafka.topic"),
-                                null,
-                                null,
-                                null,
-                                Schema.STRING_SCHEMA,
-                                body,
-                            )
+                            val record =
+                                SourceRecord(
+                                    mapOf("queue" to queueName),
+                                    mapOf("offset" to offset),
+                                    config.getString("kafka.topic"),
+                                    null,
+                                    null,
+                                    null,
+                                    Schema.STRING_SCHEMA,
+                                    body,
+                                )
 
-                        messageQueue.add(record)
+                            messageQueue.add(record)
+                        } catch (e: Exception) {
+                            logger.error("Error processing message from queue '$queueName' at offset ${ctx.offset()}", e)
+                        }
                     }
                     .build()
             consumers.add(consumer)

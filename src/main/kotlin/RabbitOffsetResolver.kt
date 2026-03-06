@@ -1,3 +1,5 @@
+package com.github.maksimgr
+
 import com.rabbitmq.stream.OffsetSpecification
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -5,8 +7,8 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-object RabbiOffsetResolver {
-    val logger: Logger = LoggerFactory.getLogger(RabbitSourceConnector::class.java)
+object RabbitOffsetResolver {
+    val logger: Logger = LoggerFactory.getLogger(RabbitOffsetResolver::class.java)
     private val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
 
     fun resolveOffset(offsetStr: String): OffsetSpecification =

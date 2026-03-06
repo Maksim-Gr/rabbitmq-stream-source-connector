@@ -1,3 +1,5 @@
+package com.github.maksimgr
+
 import com.rabbitmq.stream.Environment
 import com.rabbitmq.stream.Producer
 import org.apache.kafka.connect.source.SourceTaskContext
