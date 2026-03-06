@@ -34,14 +34,20 @@ class RabbitSourceConfig(
                     val normalized = value.trim().lowercase()
                     if (normalized !in setOf("first", "last", "next")) {
                         try {
-                            java.time.LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
-                        } catch (e: Exception) {
-                            throw ConfigException(name, value, "Must be 'first', 'last', 'next', or timestamp format 'dd.MM.yyyy HH:mm:ss'")
+                            java.time.LocalDateTime.parse(
+                                value,
+                                java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"),
+                            )
+                        } catch (e: java.time.format.DateTimeParseException) {
+                            throw ConfigException(
+                                name,
+                                value,
+                                "Must be 'first', 'last', 'next', or timestamp format 'dd.MM.yyyy HH:mm:ss'",
+                            )
                         }
                     }
                 }
             }
-
         val CONFIG: ConfigDef =
             ConfigDef()
                 .define(
