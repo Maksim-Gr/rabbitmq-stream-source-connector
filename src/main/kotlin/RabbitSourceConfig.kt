@@ -19,27 +19,29 @@ class RabbitSourceConfig(
         private const val RABBITMQ_REQUESTED_HEARTBEAT = "rabbitmq.requested.heartbeat.seconds"
         private const val RABBITMQ_REQUESTED_FRAME_MAX = "rabbitmq.requested.frame.max"
 
-        private val NON_EMPTY_STRING_VALIDATOR = ConfigDef.Validator { name, value ->
-            if (value is String && value.trim().isEmpty()) {
-                throw ConfigException(name, value, "Value must not be empty")
+        private val NON_EMPTY_STRING_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is String && value.trim().isEmpty()) {
+                    throw ConfigException(name, value, "Value must not be empty")
+                }
             }
-        }
 
         private val PORT_RANGE_VALIDATOR = ConfigDef.Range.between(1, 65535)
 
-        private val OFFSET_VALIDATOR = ConfigDef.Validator { name, value ->
-            if (value is String) {
-                val normalized = value.trim().lowercase()
-                if (normalized !in setOf("first", "last", "next")) {
-                    // Try to parse as timestamp
-                    try {
-                        java.time.LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
-                    } catch (e: Exception) {
-                        throw ConfigException(name, value, "Must be 'first', 'last', 'next', or timestamp format 'dd.MM.yyyy HH:mm:ss'")
+        private val OFFSET_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is String) {
+                    val normalized = value.trim().lowercase()
+                    if (normalized !in setOf("first", "last", "next")) {
+                        // Try to parse as timestamp
+                        try {
+                            java.time.LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
+                        } catch (e: Exception) {
+                            throw ConfigException(name, value, "Must be 'first', 'last', 'next', or timestamp format 'dd.MM.yyyy HH:mm:ss'")
+                        }
                     }
                 }
             }
-        }
 
         val CONFIG: ConfigDef =
             ConfigDef()
