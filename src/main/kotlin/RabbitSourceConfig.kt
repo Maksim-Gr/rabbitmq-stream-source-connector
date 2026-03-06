@@ -48,165 +48,91 @@ class RabbitSourceConfig(
                     }
                 }
             }
+
         val CONFIG: ConfigDef =
             ConfigDef()
                 .define(
-                    // name =
                     CONFIG_NAME_DESTINATION_KAFKA_TOPIC,
-                    // type =
                     ConfigDef.Type.STRING,
-                    // defaultValue =
                     ConfigDef.NO_DEFAULT_VALUE,
-                    // validator =
                     NON_EMPTY_STRING_VALIDATOR,
-                    // importance =
                     ConfigDef.Importance.HIGH,
-                    // documentation =
                     "Destination Kafka topic where messages are written.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.MEDIUM,
-                    // displayName =
                     "Kafka Destination Topic",
                 ).define(
-                    // name =
                     CONFIG_NAME_SOURCE_RABBITMQ_QUEUES,
-                    // type =
                     ConfigDef.Type.LIST,
-                    // importance =
                     ConfigDef.Importance.HIGH,
-                    // documentation =
                     "Source RabbitMQ queue where messages are pulled.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.MEDIUM,
-                    // displayName =
                     "RabbitMQ Source Queues",
                 ).define(
-                    // name =
                     RABBITMQ_HOST,
-                    // type =
                     ConfigDef.Type.STRING,
-                    // defaultValue =
                     "localhost",
-                    // validator =
                     NON_EMPTY_STRING_VALIDATOR,
-                    // importance =
                     ConfigDef.Importance.HIGH,
-                    // documentation =
                     "The name of the RabbitMQ host.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.MEDIUM,
-                    // displayName =
                     "RabbitMQ Host",
                 ).define(
-                    // name =
                     RABBITMQ_PORT,
-                    // type =
                     ConfigDef.Type.INT,
-                    // defaultValue =
                     5552,
-                    // validator =
                     PORT_RANGE_VALIDATOR,
-                    // importance =
                     ConfigDef.Importance.MEDIUM,
-                    // documentation =
                     "The port that RabbitMQ will listen on.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.SHORT,
-                    // displayName =
                     "RabbitMQ Port",
                 ).define(
-                    // name =
                     RABBITMQ_USERNAME,
-                    // type =
                     ConfigDef.Type.STRING,
-                    // defaultValue =
                     "guest",
-                    // importance =
                     ConfigDef.Importance.HIGH,
-                    // documentation =
                     "The username for authenticating with RabbitMQ.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.MEDIUM,
-                    // displayName =
                     "RabbitMQ Username",
                 ).define(
-                    // name =
                     RABBITMQ_PASSWORD,
-                    // type =
                     ConfigDef.Type.PASSWORD,
-                    // defaultValue =
                     "guest",
-                    // importance =
                     ConfigDef.Importance.HIGH,
-                    // documentation =
                     "The password for authenticating with RabbitMQ.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.MEDIUM,
-                    // displayName =
                     "RabbitMQ Password",
                 ).define(
-                    // name =
                     RABBITMQ_VIRTUAL_HOST,
-                    // type =
                     ConfigDef.Type.STRING,
-                    // defaultValue =
                     "/",
-                    // importance =
                     ConfigDef.Importance.HIGH,
-                    // documentation =
                     "The virtual host RabbitMQ uses when connecting to the broker.",
-                    // group =
                     "Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.MEDIUM,
-                    // displayName =
                     "RabbitMQ Virtual Host",
                 ).define(
-                    // name =
                     CONFIG_NAME_RABBITMQ_OFFSET,
-                    // type =
                     ConfigDef.Type.STRING,
-                    // defaultValue =
                     "first",
-                    // validator =
                     OFFSET_VALIDATOR,
-                    // importance =
                     ConfigDef.Importance.MEDIUM,
-                    // documentation =
                     "supports different offset specifications in addition to the absolute offset: first, last, next, and timestamp.",
-                    // group =
                     "Advanced Settings",
-                    // orderInGroup =
                     -1,
-                    // width =
                     ConfigDef.Width.SHORT,
-                    // displayName =
                     "Offset position",
                 ).define(
                     RABBITMQ_REQUESTED_HEARTBEAT,
@@ -218,8 +144,7 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "Requested Heartbeat",
-                )
-                .define(
+                ).define(
                     RABBITMQ_REQUESTED_FRAME_MAX,
                     ConfigDef.Type.INT,
                     1048576,
