@@ -33,7 +33,6 @@ class RabbitSourceConfig(
                 if (value is String) {
                     val normalized = value.trim().lowercase()
                     if (normalized !in setOf("first", "last", "next")) {
-                        // Try to parse as timestamp
                         try {
                             java.time.LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
                         } catch (e: Exception) {
