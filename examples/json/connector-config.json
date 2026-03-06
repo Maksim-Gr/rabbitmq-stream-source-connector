@@ -1,0 +1,22 @@
+{
+  "name": "rabbitmq-source-connector",
+  "config": {
+    "connector.class": "RabbitSourceConnector",
+    "tasks.max": "2",
+
+    "kafka.topic": "rabbitmq.messages",
+
+    "rabbitmq.queue": "orders,events",
+
+    "rabbitmq.host": "localhost",
+    "rabbitmq.port": "5552",
+    "rabbitmq.username": "guest",
+    "rabbitmq.password": "guest",
+    "rabbitmq.virtual.host": "/",
+
+    "rabbitmq.offset": "first",
+
+    "rabbitmq.requested.heartbeat.seconds": "60",
+    "rabbitmq.requested.frame.max": "1048576"
+  }
+}
