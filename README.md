@@ -38,6 +38,9 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.queue                              | Name of the RabbitMQ queue to consume from |
 | rabbitmq.offset                             | Initial offset to consume from, e.g., `first` |
 | kafka.topic                                 | Kafka topic where the data should be published |
+| rabbitmq.tls.enabled                        | Enable TLS for the RabbitMQ Streams connection. Default: `false` |
+| rabbitmq.tls.truststore.path                | Path to a JKS truststore file. Optional — omit to use the JVM default trust store (for publicly-trusted CAs) |
+| rabbitmq.tls.truststore.password            | Password for the JKS truststore |
 
 
 ### Connector config
@@ -55,6 +58,28 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
     "rabbitmq.queue": "queue_name_here",
     "rabbitmq.offset": "first",
     "kafka.topic": "your_kafka_topic"
+  }
+}
+```
+
+### TLS config
+```json
+{
+  "name": "RabbitSourceConnector",
+  "config": {
+    "connector.class": "com.github.maksimgr.RabbitSourceConnector",
+    "tasks.max": "1",
+    "rabbitmq.host": "localhost",
+    "rabbitmq.port": "5551",
+    "rabbitmq.username": "guest",
+    "rabbitmq.password": "guest",
+    "rabbitmq.virtual.host": "/",
+    "rabbitmq.queue": "queue_name_here",
+    "rabbitmq.offset": "first",
+    "kafka.topic": "your_kafka_topic",
+    "rabbitmq.tls.enabled": "true",
+    "rabbitmq.tls.truststore.path": "/path/to/truststore.jks",
+    "rabbitmq.tls.truststore.password": "changeit"
   }
 }
 ```
