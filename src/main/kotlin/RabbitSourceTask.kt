@@ -82,6 +82,8 @@ class RabbitSourceTask : SourceTask() {
             val consumer =
                 environment.consumerBuilder()
                     .stream(queueName)
+                    .name("kafka-connector-$queueName")
+                    .autoTrackingStrategy().builder()
                     .offset(offsetSpec)
                     .messageHandler { ctx, msg ->
                         try {
