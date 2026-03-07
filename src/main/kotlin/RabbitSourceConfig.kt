@@ -18,6 +18,9 @@ class RabbitSourceConfig(
         private const val CONFIG_NAME_RABBITMQ_OFFSET = "rabbitmq.offset"
         private const val RABBITMQ_REQUESTED_HEARTBEAT = "rabbitmq.requested.heartbeat.seconds"
         private const val RABBITMQ_REQUESTED_FRAME_MAX = "rabbitmq.requested.frame.max"
+        private const val RABBITMQ_TLS_ENABLED = "rabbitmq.tls.enabled"
+        private const val RABBITMQ_TLS_TRUSTSTORE_PATH = "rabbitmq.tls.truststore.path"
+        private const val RABBITMQ_TLS_TRUSTSTORE_PASSWORD = "rabbitmq.tls.truststore.password"
 
         private val NON_EMPTY_STRING_VALIDATOR =
             ConfigDef.Validator { name, value ->
@@ -154,6 +157,36 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "Requested Frame Max",
+                ).define(
+                    RABBITMQ_TLS_ENABLED,
+                    ConfigDef.Type.BOOLEAN,
+                    false,
+                    ConfigDef.Importance.MEDIUM,
+                    "Enable TLS for the RabbitMQ Streams connection.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "TLS Enabled",
+                ).define(
+                    RABBITMQ_TLS_TRUSTSTORE_PATH,
+                    ConfigDef.Type.STRING,
+                    "",
+                    ConfigDef.Importance.MEDIUM,
+                    "Path to the JKS truststore file for TLS verification.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.MEDIUM,
+                    "TLS Truststore Path",
+                ).define(
+                    RABBITMQ_TLS_TRUSTSTORE_PASSWORD,
+                    ConfigDef.Type.PASSWORD,
+                    "",
+                    ConfigDef.Importance.MEDIUM,
+                    "Password for the JKS truststore.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.MEDIUM,
+                    "TLS Truststore Password",
                 )
     }
 }

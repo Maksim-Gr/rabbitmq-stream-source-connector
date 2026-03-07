@@ -1,15 +1,19 @@
 package com.github.maksimgr
 
 import com.rabbitmq.stream.Environment
+import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTask
 import org.slf4j.LoggerFactory
+import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
+import java.security.KeyStore
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.TrustManagerFactory
 
 class RabbitSourceTask : SourceTask() {
     companion object {
@@ -30,7 +34,7 @@ class RabbitSourceTask : SourceTask() {
         logger.info("Starting RabbitSourceTask")
 
         config = RabbitSourceConfig(props)
-        environment =
+        val envBuilder =
             Environment
                 .builder()
                 .host(config.getString("rabbitmq.host"))
@@ -40,7 +44,24 @@ class RabbitSourceTask : SourceTask() {
                 .virtualHost(config.getString("rabbitmq.virtual.host"))
                 .requestedMaxFrameSize(config.getInt("rabbitmq.requested.frame.max"))
                 .requestedHeartbeat(Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()))
-                .build()
+
+        if (config.getBoolean("rabbitmq.tls.enabled")) {
+            val truststorePath = config.getString("rabbitmq.tls.truststore.path")
+            val sslContext =
+                if (truststorePath.isNotEmpty()) {
+                    val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
+                    val truststore = KeyStore.getInstance("JKS")
+                    FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
+                    val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                    tmf.init(truststore)
+                    SslContextBuilder.forClient().trustManager(tmf).build()
+                } else {
+                    SslContextBuilder.forClient().build()
+                }
+            envBuilder.tls().sslContext(sslContext).hostnameVerification().environmentBuilder()
+        }
+
+        environment = envBuilder.build()
         initializeConnection()
         running.set(true)
 
