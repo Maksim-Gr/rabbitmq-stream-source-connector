@@ -7,8 +7,8 @@ import org.apache.kafka.connect.source.SourceTask
 import org.slf4j.LoggerFactory
 import java.nio.charset.StandardCharsets
 import java.time.Duration
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 class RabbitSourceTask : SourceTask() {
@@ -21,7 +21,7 @@ class RabbitSourceTask : SourceTask() {
     private lateinit var environment: Environment
     private val consumers = CopyOnWriteArrayList<com.rabbitmq.stream.Consumer>()
 
-    private val messageQueue = ConcurrentLinkedQueue<SourceRecord>()
+    private val messageQueue = LinkedBlockingQueue<SourceRecord>(10_000)
     private val running = AtomicBoolean(false)
 
     override fun version(): String = RabbitSourceConnector.VERSION
@@ -101,7 +101,7 @@ class RabbitSourceTask : SourceTask() {
                                     body,
                                 )
 
-                            messageQueue.add(record)
+                            messageQueue.put(record)
                         } catch (e: Exception) {
                             logger.error("Error processing message from queue '$queueName' at offset ${ctx.offset()}", e)
                         }
