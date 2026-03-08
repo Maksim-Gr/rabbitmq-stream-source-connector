@@ -3,6 +3,7 @@ package com.github.maksimgr
 import com.rabbitmq.stream.Environment
 import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kafka.connect.data.Schema
+import org.apache.kafka.connect.errors.ConnectException
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTask
 import org.slf4j.LoggerFactory
@@ -12,6 +13,7 @@ import java.security.KeyStore
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.TrustManagerFactory
 
@@ -32,61 +34,65 @@ class RabbitSourceTask : SourceTask() {
 
     override fun start(props: MutableMap<String, String>) {
         logger.info("Starting RabbitSourceTask")
+        try {
+            config = RabbitSourceConfig(props)
+            val envBuilder =
+                Environment
+                    .builder()
+                    .host(config.getString("rabbitmq.host"))
+                    .port(config.getInt("rabbitmq.port"))
+                    .username(config.getString("rabbitmq.username"))
+                    .password(config.getString("rabbitmq.password"))
+                    .virtualHost(config.getString("rabbitmq.virtual.host"))
+                    .requestedMaxFrameSize(config.getInt("rabbitmq.requested.frame.max"))
+                    .requestedHeartbeat(Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()))
 
-        config = RabbitSourceConfig(props)
-        val envBuilder =
-            Environment
-                .builder()
-                .host(config.getString("rabbitmq.host"))
-                .port(config.getInt("rabbitmq.port"))
-                .username(config.getString("rabbitmq.username"))
-                .password(config.getString("rabbitmq.password"))
-                .virtualHost(config.getString("rabbitmq.virtual.host"))
-                .requestedMaxFrameSize(config.getInt("rabbitmq.requested.frame.max"))
-                .requestedHeartbeat(Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()))
+            if (config.getBoolean("rabbitmq.tls.enabled")) {
+                val truststorePath = config.getString("rabbitmq.tls.truststore.path")
+                val sslContext =
+                    if (truststorePath.isNotEmpty()) {
+                        val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
+                        val truststore = KeyStore.getInstance("JKS")
+                        FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
+                        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                        tmf.init(truststore)
+                        SslContextBuilder.forClient().trustManager(tmf).build()
+                    } else {
+                        SslContextBuilder.forClient().build()
+                    }
+                envBuilder.tls().sslContext(sslContext).hostnameVerification().environmentBuilder()
+            }
 
-        if (config.getBoolean("rabbitmq.tls.enabled")) {
-            val truststorePath = config.getString("rabbitmq.tls.truststore.path")
-            val sslContext =
-                if (truststorePath.isNotEmpty()) {
-                    val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
-                    val truststore = KeyStore.getInstance("JKS")
-                    FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
-                    val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                    tmf.init(truststore)
-                    SslContextBuilder.forClient().trustManager(tmf).build()
-                } else {
-                    SslContextBuilder.forClient().build()
-                }
-            envBuilder.tls().sslContext(sslContext).hostnameVerification().environmentBuilder()
+            environment = envBuilder.build()
+            initializeConnection()
+            running.set(true)
+            logger.info("RabbitSourceTask started")
+        } catch (e: Exception) {
+            throw ConnectException("Failed to start RabbitSourceTask", e)
         }
-
-        environment = envBuilder.build()
-        initializeConnection()
-        running.set(true)
-
-        logger.info("RabbitSourceTask started")
     }
 
     override fun stop() {
         logger.info("Stopping RabbitSourceTask")
         running.set(false)
-        consumers.forEach { it.close() }
+        consumers.forEach { consumer ->
+            try { consumer.close() } catch (e: Exception) {
+                logger.warn("Error closing consumer", e)
+            }
+        }
         consumers.clear()
         messageQueue.clear()
-        environment.close()
+        try { environment.close() } catch (e: Exception) {
+            logger.warn("Error closing RabbitMQ environment", e)
+        }
         logger.info("RabbitSourceTask stopped")
     }
 
     override fun poll(): MutableList<SourceRecord> {
         val records = mutableListOf<SourceRecord>()
-
-        var record = messageQueue.poll()
-        while (record != null && running.get()) {
-            records.add(record)
-            record = messageQueue.poll()
-        }
-
+        val first = messageQueue.poll(100, TimeUnit.MILLISECONDS) ?: return records
+        records.add(first)
+        messageQueue.drainTo(records)
         return records
     }
 
@@ -124,7 +130,13 @@ class RabbitSourceTask : SourceTask() {
                                     body,
                                 )
 
-                            messageQueue.put(record)
+                            val offered = messageQueue.offer(record, 5, TimeUnit.SECONDS)
+                            if (!offered) {
+                                logger.warn("Message queue full, dropping message from '$queueName' at offset $offset")
+                            }
+                        } catch (e: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            logger.warn("Message handler interrupted for queue '$queueName'")
                         } catch (e: Exception) {
                             logger.error("Error processing message from queue '$queueName' at offset ${ctx.offset()}", e)
                         }

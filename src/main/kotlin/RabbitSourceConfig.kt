@@ -99,7 +99,7 @@ class RabbitSourceConfig(
                 ).define(
                     RABBITMQ_USERNAME,
                     ConfigDef.Type.STRING,
-                    "guest",
+                    ConfigDef.NO_DEFAULT_VALUE,
                     ConfigDef.Importance.HIGH,
                     "The username for authenticating with RabbitMQ.",
                     "Settings",
@@ -109,7 +109,7 @@ class RabbitSourceConfig(
                 ).define(
                     RABBITMQ_PASSWORD,
                     ConfigDef.Type.PASSWORD,
-                    "guest",
+                    ConfigDef.NO_DEFAULT_VALUE,
                     ConfigDef.Importance.HIGH,
                     "The password for authenticating with RabbitMQ.",
                     "Settings",

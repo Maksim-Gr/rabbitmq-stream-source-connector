@@ -6,6 +6,7 @@ import org.apache.kafka.connect.source.SourceTaskContext
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
 import org.mockito.Mockito.mock
+import org.apache.kafka.connect.source.SourceRecord
 import org.testcontainers.containers.RabbitMQContainer
 import java.util.concurrent.TimeUnit
 
@@ -74,14 +75,17 @@ class RabbitSourceConnectorIntegrationTest {
         val testMessage = "Hello World!"
         sendMessageToRabbitMQ("test_queue", testMessage)
 
-        TimeUnit.SECONDS.sleep(5)
+        val deadline = System.currentTimeMillis() + 10_000
+        var records = emptyList<SourceRecord>()
+        while (System.currentTimeMillis() < deadline && records.isEmpty()) {
+            records = task.poll()
+            if (records.isEmpty()) Thread.sleep(100)
+        }
 
-        val records = task.poll()
+        assertFalse(records.isEmpty(), "Should have received records within 10s")
+        val record: SourceRecord = records.first()
 
-        assertFalse(records.isEmpty(), "Records should not be empty")
-        val record = records.first()
-
-        val value = record.value()
+        val value: Any? = record.value()
         assertTrue(value is String, "Record value should be a String")
 
         val payload = value as String
