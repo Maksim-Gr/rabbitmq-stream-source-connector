@@ -35,16 +35,17 @@ class RabbitSourceTaskTest {
     @Test
     fun `poll returns records after they are enqueued`() {
         val queue = getMessageQueue(task)
-        val record = SourceRecord(
-            mapOf("queue" to "test"),
-            mapOf("offset" to 0L),
-            "test-topic",
-            null,
-            null,
-            null,
-            Schema.STRING_SCHEMA,
-            "hello",
-        )
+        val record =
+            SourceRecord(
+                mapOf("queue" to "test"),
+                mapOf("offset" to 0L),
+                "test-topic",
+                null,
+                null,
+                null,
+                Schema.STRING_SCHEMA,
+                "hello",
+            )
         queue.put(record)
 
         val records = task.poll()
@@ -66,7 +67,7 @@ class RabbitSourceTaskTest {
                     null,
                     Schema.STRING_SCHEMA,
                     "msg-$i",
-                )
+                ),
             )
         }
 

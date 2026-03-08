@@ -76,13 +76,17 @@ class RabbitSourceTask : SourceTask() {
         logger.info("Stopping RabbitSourceTask")
         running.set(false)
         consumers.forEach { consumer ->
-            try { consumer.close() } catch (e: Exception) {
+            try {
+                consumer.close()
+            } catch (e: Exception) {
                 logger.warn("Error closing consumer", e)
             }
         }
         consumers.clear()
         messageQueue.clear()
-        try { environment.close() } catch (e: Exception) {
+        try {
+            environment.close()
+        } catch (e: Exception) {
             logger.warn("Error closing RabbitMQ environment", e)
         }
         logger.info("RabbitSourceTask stopped")

@@ -2,11 +2,11 @@ package com.github.maksimgr
 
 import com.rabbitmq.stream.Environment
 import com.rabbitmq.stream.Producer
+import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTaskContext
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
 import org.mockito.Mockito.mock
-import org.apache.kafka.connect.source.SourceRecord
 import org.testcontainers.containers.RabbitMQContainer
 import java.util.concurrent.TimeUnit
 
