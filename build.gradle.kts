@@ -14,7 +14,7 @@ plugins {
 }
 
 group = "com.github.maksimgr"
-version = "1.0-SNAPSHOT"
+version = "0.1.0"
 
 repositories {
     mavenCentral()
@@ -42,7 +42,7 @@ dependencies {
 
     implementation("commons-validator:commons-validator:1.7")
 
-    implementation("com.rabbitmq:stream-client:1.5.0")
+    implementation("com.rabbitmq:stream-client:0.16.0")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")

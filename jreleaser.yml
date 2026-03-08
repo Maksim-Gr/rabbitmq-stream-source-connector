@@ -1,0 +1,76 @@
+project:
+  name: rabbitmq-stream-source-connector
+  description: RabbitMQ Stream Source Connector for Kafka Connect
+  authors:
+    - Maksim-Gr
+  license: Apache-2.0
+  links:
+    homepage: https://github.com/Maksim-Gr/rabbitmq-stream-source-connector
+
+release:
+  github:
+    owner: Maksim-Gr
+    name: rabbitmq-stream-source-connector
+    draft: false
+    prerelease:
+      pattern: '.*-SNAPSHOT'
+    changelog:
+      sort: ASC
+      formatted: ALWAYS
+      format: '- {{commitShortHash}} {{commitTitle}}'
+      hide:
+        uncategorized: true
+      skipMergeCommits: true
+      labelers:
+        - label: 'feature'
+          title: 'feat'
+          order: 1
+        - label: 'fix'
+          title: 'fix'
+          order: 2
+        - label: 'deps'
+          title: 'deps'
+          order: 3
+        - label: 'skip'
+          title: 'docs'
+          order: 10
+        - label: 'skip'
+          title: 'test'
+          order: 11
+        - label: 'skip'
+          title: 'ci'
+          order: 12
+        - label: 'skip'
+          title: 'chore'
+          order: 13
+        - label: 'skip'
+          title: 'devops'
+          order: 14
+        - label: 'skip'
+          title: 'upgrade'
+          order: 15
+        - label: 'skip'
+          title: 'todo'
+          order: 16
+        - label: 'skip'
+          title: 'remove'
+          order: 17
+      categories:
+        - title: 'Features'
+          labels:
+            - 'feature'
+          order: 0
+        - title: 'Bug Fixes'
+          labels:
+            - 'fix'
+          order: 1
+        - title: 'Dependencies'
+          labels:
+            - 'deps'
+          order: 2
+      excludeLabels:
+        - 'skip'
+
+files:
+  artifacts:
+    - path: 'build/libs/rabbitmq-stream-source-connector-{{projectVersion}}.jar'
