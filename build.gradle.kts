@@ -40,7 +40,7 @@ dependencies {
     implementation("org.slf4j:slf4j-api:2.0.6")
     implementation("ch.qos.logback:logback-classic:1.5.13")
 
-    implementation("commons-validator:commons-validator:1.7")
+    implementation("commons-validator:commons-validator:1.10.1")
 
     implementation("com.rabbitmq:stream-client:0.16.0")
 
