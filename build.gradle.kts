@@ -10,7 +10,7 @@ plugins {
     kotlin("plugin.serialization") version "2.3.10"
 
     id("com.palantir.git-version") version "1.0.0"
-    id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
+    id("org.jlleitschuh.gradle.ktlint") version "14.1.0"
 }
 
 group = "com.github.maksimgr"
@@ -40,7 +40,7 @@ dependencies {
     implementation("org.slf4j:slf4j-api:2.0.6")
     implementation("ch.qos.logback:logback-classic:1.5.13")
 
-    implementation("commons-validator:commons-validator:1.7")
+    implementation("commons-validator:commons-validator:1.10.1")
 
     implementation("com.rabbitmq:stream-client:0.16.0")
 
