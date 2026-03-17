@@ -4,8 +4,6 @@ val buildTimestamp: String = LocalDateTime.now().toString()
 
 plugins {
     `java-library`
-    `maven-publish`
-
     kotlin("jvm") version "2.3.10"
     kotlin("plugin.serialization") version "2.3.10"
 
@@ -59,7 +57,6 @@ dependencies {
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
     testImplementation("com.rabbitmq:amqp-client:5.18.0")
-    testImplementation("org.apache.kafka:kafka-clients:4.2.0")
     testCompileOnly("org.apache.kafka:connect-api:4.2.0")
 }
 
