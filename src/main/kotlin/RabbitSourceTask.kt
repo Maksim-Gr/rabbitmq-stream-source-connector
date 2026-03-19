@@ -45,7 +45,9 @@ class RabbitSourceTask : SourceTask() {
                     .password(config.getString("rabbitmq.password"))
                     .virtualHost(config.getString("rabbitmq.virtual.host"))
                     .requestedMaxFrameSize(config.getInt("rabbitmq.requested.frame.max"))
-                    .requestedHeartbeat(Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()))
+                    .requestedHeartbeat(
+                        Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()),
+                    )
 
             if (config.getBoolean("rabbitmq.tls.enabled")) {
                 val truststorePath = config.getString("rabbitmq.tls.truststore.path")
@@ -142,7 +144,10 @@ class RabbitSourceTask : SourceTask() {
                             Thread.currentThread().interrupt()
                             logger.warn("Message handler interrupted for queue '$queueName'")
                         } catch (e: Exception) {
-                            logger.error("Error processing message from queue '$queueName' at offset ${ctx.offset()}", e)
+                            logger.error(
+                                "Error processing message from queue '$queueName' at offset ${ctx.offset()}",
+                                e,
+                            )
                         }
                     }
                     .build()

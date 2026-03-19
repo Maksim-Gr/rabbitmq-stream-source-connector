@@ -1,3 +1,7 @@
 [*.{kt,kts}]
-ij_kotlin_packages_to_use_import_on_demand = unset
-ktlint_standard_no-wildcard-imports = disabled
+ij_kotlin_packages_to_use_import_on_demand = org.junit.jupiter.api,org.junit.jupiter.api.Assertions
+indent_size = 4
+indent_style = space
+max_line_length = 140
+insert_final_newline = true
+ij_kotlin_imports_layout = *,java.**,javax.**,kotlin.**,^
