@@ -52,7 +52,7 @@ dependencies {
     testImplementation("org.testcontainers:rabbitmq:1.21.4")
 
     testImplementation("com.github.christophschubert:cp-testcontainers:v0.2.1")
-    testImplementation("org.sourcelab:kafka-connect-client:4.0.3")
+    testImplementation("org.sourcelab:kafka-connect-client:4.0.5")
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
     testImplementation("com.rabbitmq:amqp-client:5.18.0")
