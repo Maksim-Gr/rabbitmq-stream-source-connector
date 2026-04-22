@@ -62,7 +62,7 @@ class RabbitSourceTask : SourceTask() {
                     } else {
                         SslContextBuilder.forClient().build()
                     }
-                envBuilder.tls().sslContext(sslContext).hostnameVerification().environmentBuilder()
+                envBuilder.tls().sslContext(sslContext).environmentBuilder()
             }
 
             environment = envBuilder.build()
