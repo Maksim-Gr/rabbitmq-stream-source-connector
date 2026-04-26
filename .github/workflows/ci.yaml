@@ -39,3 +39,6 @@ jobs:
 
       - name: Build
         run: ./gradlew build -x integrationTest --no-daemon --console=plain
+
+      - name: Run Integration Tests
+        run: ./gradlew integrationTest --no-daemon --console=plain

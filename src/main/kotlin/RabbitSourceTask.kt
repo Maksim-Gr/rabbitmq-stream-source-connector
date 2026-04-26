@@ -73,7 +73,6 @@ class RabbitSourceTask : SourceTask() {
 
             environment = envBuilder.build()
             initializeConnection()
-            running.set(true)
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
                 { logger.info("Internal message queue depth: ${messageQueue.size} / 10_000") },
@@ -81,8 +80,16 @@ class RabbitSourceTask : SourceTask() {
                 30,
                 TimeUnit.SECONDS,
             )
+            running.set(true)
             logger.info("RabbitSourceTask started")
         } catch (e: Exception) {
+            if (::environment.isInitialized) {
+                try {
+                    environment.close()
+                } catch (ce: Exception) {
+                    logger.warn("Error closing environment after failed start", ce)
+                }
+            }
             throw ConnectException("Failed to start RabbitSourceTask", e)
         }
     }
@@ -90,7 +97,7 @@ class RabbitSourceTask : SourceTask() {
     override fun stop() {
         logger.info("Stopping RabbitSourceTask")
         running.set(false)
-        queueMonitor.shutdown()
+        if (::queueMonitor.isInitialized) queueMonitor.shutdown()
         consumers.forEach { consumer ->
             try {
                 consumer.close()
@@ -100,10 +107,12 @@ class RabbitSourceTask : SourceTask() {
         }
         consumers.clear()
         messageQueue.clear()
-        try {
-            environment.close()
-        } catch (e: Exception) {
-            logger.warn("Error closing RabbitMQ environment", e)
+        if (::environment.isInitialized) {
+            try {
+                environment.close()
+            } catch (e: Exception) {
+                logger.warn("Error closing RabbitMQ environment", e)
+            }
         }
         logger.info("RabbitSourceTask stopped")
     }
