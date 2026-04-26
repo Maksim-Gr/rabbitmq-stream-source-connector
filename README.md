@@ -16,7 +16,7 @@ This command will clean the project and build the JAR file. The resulting JAR wi
 After building the JAR, copy it into your Kafka Connect plugin path. You can do so by running the following command:
 
 ```bash
-  cp build/libs/rabbitmq-source-connector.jar $KAFKA_CONNECT_PLUGINS_DIR/
+  cp build/libs/rabbitmq-stream-source-connector-*.jar $KAFKA_CONNECT_PLUGINS_DIR/
 ```
 
 Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory where Kafka Connect loads its connectors (this is specified in the Kafka Connect worker's `plugin.path` configuration).
@@ -26,21 +26,23 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 
 # Configuration
 
-| Property                                   | Description                   |
-|--------------------------------------------|-------------------------------|
-| connector.class                             | Connector class to use, must be `com.github.maksimgr.RabbitSourceConnector` |
-| tasks.max                                   | Maximum number of tasks to run |
-| rabbitmq.host                               | Hostname of the RabbitMQ broker |
-| rabbitmq.port                               | Port of the RabbitMQ broker   |
-| rabbitmq.username                           | Username for connecting to RabbitMQ |
-| rabbitmq.password                           | Password for connecting to RabbitMQ |
-| rabbitmq.virtual.host                       | Virtual host on RabbitMQ to connect to |
-| rabbitmq.queue                              | Name of the RabbitMQ queue to consume from |
-| rabbitmq.offset                             | Initial offset to consume from, e.g., `first` |
-| kafka.topic                                 | Kafka topic where the data should be published |
-| rabbitmq.tls.enabled                        | Enable TLS for the RabbitMQ Streams connection. Default: `false` |
-| rabbitmq.tls.truststore.path                | Path to a JKS truststore file. Optional — omit to use the JVM default trust store (for publicly-trusted CAs) |
-| rabbitmq.tls.truststore.password            | Password for the JKS truststore |
+| Property                                   | Default | Description                   |
+|--------------------------------------------|---------|-------------------------------|
+| connector.class                            | —       | Must be `com.github.maksimgr.RabbitSourceConnector` |
+| tasks.max                                  | —       | Maximum number of tasks; each task handles one or more queues |
+| kafka.topic                                | —       | Destination Kafka topic where messages are written |
+| rabbitmq.queue                             | —       | Comma-separated list of RabbitMQ stream names to consume from |
+| rabbitmq.host                              | `localhost` | Hostname of the RabbitMQ broker |
+| rabbitmq.port                              | `5552`  | Port of the RabbitMQ Streams protocol (not the AMQP port 5672) |
+| rabbitmq.username                          | —       | Username for connecting to RabbitMQ |
+| rabbitmq.password                          | —       | Password for connecting to RabbitMQ |
+| rabbitmq.virtual.host                      | `/`     | Virtual host on RabbitMQ to connect to |
+| rabbitmq.offset                            | `first` | Starting offset: `first`, `last`, `next`, or a timestamp `dd.MM.yyyy HH:mm:ss` |
+| rabbitmq.requested.heartbeat.seconds       | `60`    | Heartbeat interval in seconds for the RabbitMQ Streams connection |
+| rabbitmq.requested.frame.max               | `1048576` | Maximum frame size in bytes for the RabbitMQ Streams connection |
+| rabbitmq.tls.enabled                       | `false` | Enable TLS for the RabbitMQ Streams connection |
+| rabbitmq.tls.truststore.path               | `""`    | Path to a JKS truststore file. Omit to use the JVM default trust store (for publicly-trusted CAs) |
+| rabbitmq.tls.truststore.password           | `""`    | Password for the JKS truststore |
 
 
 ### Connector config
@@ -51,7 +53,7 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
     "connector.class": "com.github.maksimgr.RabbitSourceConnector",
     "tasks.max": "1",
     "rabbitmq.host": "localhost",
-    "rabbitmq.port": "5672",
+    "rabbitmq.port": "5552",
     "rabbitmq.username": "guest",
     "rabbitmq.password": "guest",
     "rabbitmq.virtual.host": "/",
@@ -83,3 +85,29 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
   }
 }
 ```
+
+### Multiple queues
+Set `rabbitmq.queue` to a comma-separated list to consume from more than one stream. Queues are distributed round-robin across tasks up to `tasks.max`:
+```json
+{
+  "rabbitmq.queue": "stream-a,stream-b,stream-c",
+  "tasks.max": "3"
+}
+```
+
+# Operations
+
+### Backpressure
+The connector uses an internal buffer of 10,000 records between the RabbitMQ consumer thread and Kafka. When the buffer is full the consumer thread blocks until space is available — messages are never dropped. The current buffer depth is logged every 30 seconds at INFO level:
+```
+Internal message queue depth: 1234 / 10_000
+```
+
+### Connection recovery
+The connector enables automatic reconnection via the RabbitMQ Streams client's built-in recovery mechanism with a fixed 5-second back-off between retries. State transitions are surfaced as log lines:
+
+| Event | Log level |
+|-------|-----------|
+| Consumer starts recovering after a failure | WARN |
+| Consumer recovered successfully | INFO |
+| Consumer closed unexpectedly while task is running | ERROR |
