@@ -12,7 +12,9 @@ import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.TrustManagerFactory
@@ -29,6 +31,7 @@ class RabbitSourceTask : SourceTask() {
 
     private val messageQueue = LinkedBlockingQueue<SourceRecord>(10_000)
     private val running = AtomicBoolean(false)
+    private lateinit var queueMonitor: ScheduledExecutorService
 
     override fun version(): String = RabbitSourceConnector.VERSION
 
@@ -68,6 +71,11 @@ class RabbitSourceTask : SourceTask() {
             environment = envBuilder.build()
             initializeConnection()
             running.set(true)
+            queueMonitor = Executors.newSingleThreadScheduledExecutor()
+            queueMonitor.scheduleAtFixedRate(
+                { logger.info("Internal message queue depth: ${messageQueue.size} / 10_000") },
+                30, 30, TimeUnit.SECONDS,
+            )
             logger.info("RabbitSourceTask started")
         } catch (e: Exception) {
             throw ConnectException("Failed to start RabbitSourceTask", e)
@@ -77,6 +85,7 @@ class RabbitSourceTask : SourceTask() {
     override fun stop() {
         logger.info("Stopping RabbitSourceTask")
         running.set(false)
+        queueMonitor.shutdown()
         consumers.forEach { consumer ->
             try {
                 consumer.close()
