@@ -1,6 +1,8 @@
 package com.github.maksimgr
 
+import com.rabbitmq.stream.BackOffDelayPolicy
 import com.rabbitmq.stream.Environment
+import com.rabbitmq.stream.Resource
 import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.errors.ConnectException
@@ -48,6 +50,7 @@ class RabbitSourceTask : SourceTask() {
                     .requestedHeartbeat(
                         Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()),
                     )
+                    .recoveryBackOffDelayPolicy(BackOffDelayPolicy.fixed(Duration.ofSeconds(5)))
 
             if (config.getBoolean("rabbitmq.tls.enabled")) {
                 val truststorePath = config.getString("rabbitmq.tls.truststore.path")
@@ -150,6 +153,25 @@ class RabbitSourceTask : SourceTask() {
                             )
                         }
                     }
+                    .listeners(
+                        Resource.StateListener { ctx ->
+                            when (ctx.currentState()) {
+                                Resource.State.RECOVERING ->
+                                    logger.warn("Consumer for '$queueName' is recovering (previous state: ${ctx.previousState()})")
+                                Resource.State.OPEN ->
+                                    if (ctx.previousState() == Resource.State.RECOVERING) {
+                                        logger.info("Consumer for '$queueName' recovered successfully")
+                                    }
+                                Resource.State.CLOSED ->
+                                    if (running.get()) {
+                                        logger.error(
+                                            "Consumer for '$queueName' closed unexpectedly (previous state: ${ctx.previousState()})",
+                                        )
+                                    }
+                                else -> {}
+                            }
+                        },
+                    )
                     .build()
             consumers.add(consumer)
         }
