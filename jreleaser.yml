@@ -12,6 +12,7 @@ release:
     owner: Maksim-Gr
     name: rabbitmq-stream-source-connector
     draft: false
+    overwrite: true
     prerelease:
       pattern: '.*-SNAPSHOT'
     changelog:
