@@ -27,12 +27,13 @@ class RabbitSourceConnector : SourceConnector() {
 
     override fun taskConfigs(maxTasks: Int): List<Map<String, String>> {
         val cfg = RabbitSourceConfig(settings.toMutableMap())
-        val queues: List<String> = cfg.getList("rabbitmq.queue")
+        val queues: List<String> = cfg.getList("rabbitmq.queue").distinct()
         if (queues.isEmpty()) {
             logger.info("no queues configured")
             return emptyList()
         }
         val numTasks = minOf(queues.size, maxTasks)
+        if (numTasks == 0) return emptyList()
 
         val taskConfigs =
             MutableList(numTasks) {
