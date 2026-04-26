@@ -74,7 +74,9 @@ class RabbitSourceTask : SourceTask() {
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
                 { logger.info("Internal message queue depth: ${messageQueue.size} / 10_000") },
-                30, 30, TimeUnit.SECONDS,
+                30,
+                30,
+                TimeUnit.SECONDS,
             )
             logger.info("RabbitSourceTask started")
         } catch (e: Exception) {
