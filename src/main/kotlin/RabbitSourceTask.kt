@@ -136,10 +136,7 @@ class RabbitSourceTask : SourceTask() {
                                     body,
                                 )
 
-                            val offered = messageQueue.offer(record, 5, TimeUnit.SECONDS)
-                            if (!offered) {
-                                logger.warn("Message queue full, dropping message from '$queueName' at offset $offset")
-                            }
+                            messageQueue.put(record)
                         } catch (e: InterruptedException) {
                             Thread.currentThread().interrupt()
                             logger.warn("Message handler interrupted for queue '$queueName'")
