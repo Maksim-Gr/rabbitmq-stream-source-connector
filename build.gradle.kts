@@ -28,8 +28,8 @@ configurations.all {
 }
 
 dependencies {
-    compileOnly("org.apache.kafka:connect-api:4.2.0")
-    implementation("org.apache.kafka:kafka-clients:4.2.0")
+    compileOnly("org.apache.kafka:connect-api:4.3.0")
+    implementation("org.apache.kafka:kafka-clients:4.3.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
@@ -56,7 +56,7 @@ dependencies {
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
     testImplementation("com.rabbitmq:amqp-client:5.30.0")
-    testCompileOnly("org.apache.kafka:connect-api:4.2.0")
+    testCompileOnly("org.apache.kafka:connect-api:4.3.0")
 }
 
 kotlin {
