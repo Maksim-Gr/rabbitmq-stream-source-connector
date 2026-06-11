@@ -2,10 +2,12 @@ package com.github.maksimgr
 
 import com.rabbitmq.stream.BackOffDelayPolicy
 import com.rabbitmq.stream.Environment
+import com.rabbitmq.stream.OffsetSpecification
 import com.rabbitmq.stream.Resource
 import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.errors.ConnectException
+import org.apache.kafka.connect.header.ConnectHeaders
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTask
 import org.slf4j.LoggerFactory
@@ -19,19 +21,29 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.TrustManagerFactory
 
 class RabbitSourceTask : SourceTask() {
     companion object {
         @JvmStatic
         val logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)!!
+
+        private const val DEFAULT_BUFFER_SIZE = 10_000
     }
 
     private lateinit var config: RabbitSourceConfig
     private lateinit var environment: Environment
     private val consumers = CopyOnWriteArrayList<com.rabbitmq.stream.Consumer>()
 
-    private val messageQueue = LinkedBlockingQueue<SourceRecord>(10_000)
+    @Volatile
+    private var messageQueue = LinkedBlockingQueue<SourceRecord>(DEFAULT_BUFFER_SIZE)
+    private var bufferSize = DEFAULT_BUFFER_SIZE
+    private var pollMaxBatchSize = 1000
+    private lateinit var topic: String
+    private var messageFormat = "string"
+    private var headersEnabled = false
+    private var messageKeySource = ""
     private val running = AtomicBoolean(false)
     private lateinit var queueMonitor: ScheduledExecutorService
 
@@ -41,6 +53,14 @@ class RabbitSourceTask : SourceTask() {
         logger.info("Starting RabbitSourceTask")
         try {
             config = RabbitSourceConfig(props)
+            bufferSize = config.getInt("rabbitmq.queue.buffer.size")
+            pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size")
+            messageQueue = LinkedBlockingQueue(bufferSize)
+            topic = config.getString("kafka.topic")
+            messageFormat = config.getString("rabbitmq.message.format").lowercase()
+            headersEnabled = config.getBoolean("rabbitmq.headers.enabled")
+            messageKeySource = config.getString("rabbitmq.message.key").trim()
+            val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
             val envBuilder =
                 Environment
                     .builder()
@@ -53,29 +73,17 @@ class RabbitSourceTask : SourceTask() {
                     .requestedHeartbeat(
                         Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()),
                     )
-                    .recoveryBackOffDelayPolicy(BackOffDelayPolicy.fixed(Duration.ofSeconds(5)))
+                    .recoveryBackOffDelayPolicy(BackOffDelayPolicy.fixed(Duration.ofSeconds(recoveryBackoff)))
 
             if (config.getBoolean("rabbitmq.tls.enabled")) {
-                val truststorePath = config.getString("rabbitmq.tls.truststore.path")
-                val sslContext =
-                    if (truststorePath.isNotEmpty()) {
-                        val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
-                        val truststore = KeyStore.getInstance("JKS")
-                        FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
-                        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                        tmf.init(truststore)
-                        SslContextBuilder.forClient().trustManager(tmf).build()
-                    } else {
-                        SslContextBuilder.forClient().build()
-                    }
-                envBuilder.tls().sslContext(sslContext).environmentBuilder()
+                envBuilder.tls().sslContext(buildSslContext()).environmentBuilder()
             }
 
             environment = envBuilder.build()
             initializeConnection()
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
-                { logger.info("Internal message queue depth: ${messageQueue.size} / 10_000") },
+                { logger.info("Internal message queue depth: ${messageQueue.size} / $bufferSize") },
                 30,
                 30,
                 TimeUnit.SECONDS,
@@ -121,7 +129,8 @@ class RabbitSourceTask : SourceTask() {
         val records = mutableListOf<SourceRecord>()
         val first = messageQueue.poll(100, TimeUnit.MILLISECONDS) ?: return records
         records.add(first)
-        messageQueue.drainTo(records)
+        // Cap the batch so a single poll cannot return an unbounded number of records.
+        messageQueue.drainTo(records, pollMaxBatchSize - 1)
         return records
     }
 
@@ -131,10 +140,24 @@ class RabbitSourceTask : SourceTask() {
             throw IllegalArgumentException("rabbitmq queue must be provided")
         }
         val offsetStr = config.getString("rabbitmq.offset")
-        val offsetSpec = RabbitOffsetResolver.resolveOffset(offsetStr)
+        val configOffsetSpec = RabbitOffsetResolver.resolveOffset(offsetStr)
         logger.info("RabbitSourceTask initializing connection")
 
         queueNames.forEach { queueName ->
+            // Prefer the offset committed to Kafka Connect's offset store so the task
+            // resumes exactly where Kafka last acknowledged (at-least-once). Only when
+            // no committed offset exists do we fall back to the configured start offset.
+            val partition = mapOf("queue" to queueName)
+            val committedOffset = context.offsetStorageReader().offset(partition)?.get("offset") as? Long
+            val offsetSpec =
+                if (committedOffset != null) {
+                    logger.info("Resuming queue '$queueName' from committed offset ${committedOffset + 1}")
+                    OffsetSpecification.offset(committedOffset + 1)
+                } else {
+                    logger.info("No committed offset for queue '$queueName'; starting from '$offsetStr'")
+                    configOffsetSpec
+                }
+
             val consumer =
                 environment.consumerBuilder()
                     .stream(queueName)
@@ -144,22 +167,8 @@ class RabbitSourceTask : SourceTask() {
                     .messageHandler { ctx, msg ->
                         try {
                             val offset = ctx.offset()
-                            val body = String(msg.bodyAsBinary, StandardCharsets.UTF_8)
-                            logger.debug("Received message at offset $offset with body: $body")
-
-                            val record =
-                                SourceRecord(
-                                    mapOf("queue" to queueName),
-                                    mapOf("offset" to offset),
-                                    config.getString("kafka.topic"),
-                                    null,
-                                    null,
-                                    null,
-                                    Schema.STRING_SCHEMA,
-                                    body,
-                                )
-
-                            messageQueue.put(record)
+                            logger.debug("Received message at offset $offset")
+                            messageQueue.put(buildRecord(partition, offset, msg))
                         } catch (e: InterruptedException) {
                             Thread.currentThread().interrupt()
                             logger.warn("Message handler interrupted for queue '$queueName'")
@@ -192,6 +201,79 @@ class RabbitSourceTask : SourceTask() {
                     .build()
             consumers.add(consumer)
         }
-        logger.info("Started consuming RabbitMQ streams: $queueNames from offset: $offsetSpec")
+        logger.info("Started consuming RabbitMQ streams: $queueNames (configured offset: $offsetStr)")
+    }
+
+    private fun buildRecord(
+        partition: Map<String, String>,
+        offset: Long,
+        msg: com.rabbitmq.stream.Message,
+    ): SourceRecord {
+        val sourceOffset = mapOf("offset" to offset)
+        val key = resolveKey(msg)
+        val keySchema = if (key != null) Schema.STRING_SCHEMA else null
+
+        val (valueSchema, value) =
+            if (messageFormat == "bytes") {
+                Schema.BYTES_SCHEMA to msg.bodyAsBinary
+            } else {
+                Schema.STRING_SCHEMA to String(msg.bodyAsBinary, StandardCharsets.UTF_8)
+            }
+
+        val headers = ConnectHeaders()
+        if (headersEnabled) {
+            msg.applicationProperties?.forEach { (name, propValue) ->
+                if (propValue != null) headers.addString(name, propValue.toString())
+            }
+        }
+
+        return SourceRecord(
+            partition,
+            sourceOffset,
+            topic,
+            null,
+            keySchema,
+            key,
+            valueSchema,
+            value,
+            null,
+            headers,
+        )
+    }
+
+    /** Resolves the Kafka record key from the configured message property, or null if unset/absent. */
+    private fun resolveKey(msg: com.rabbitmq.stream.Message): String? {
+        if (messageKeySource.isEmpty()) return null
+        return when (messageKeySource) {
+            "messageId" -> msg.properties?.messageId?.toString()
+            "correlationId" -> msg.properties?.correlationId?.toString()
+            else -> msg.applicationProperties?.get(messageKeySource)?.toString()
+        }
+    }
+
+    private fun buildSslContext(): io.netty.handler.ssl.SslContext {
+        val builder = SslContextBuilder.forClient()
+
+        val truststorePath = config.getString("rabbitmq.tls.truststore.path")
+        if (truststorePath.isNotEmpty()) {
+            val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
+            val truststore = KeyStore.getInstance("JKS")
+            FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
+            val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+            tmf.init(truststore)
+            builder.trustManager(tmf)
+        }
+
+        val keystorePath = config.getString("rabbitmq.tls.keystore.path")
+        if (keystorePath.isNotEmpty()) {
+            val keystorePassword = config.getPassword("rabbitmq.tls.keystore.password").value().toCharArray()
+            val keystore = KeyStore.getInstance("JKS")
+            FileInputStream(keystorePath).use { keystore.load(it, keystorePassword) }
+            val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+            kmf.init(keystore, keystorePassword)
+            builder.keyManager(kmf)
+        }
+
+        return builder.build()
     }
 }

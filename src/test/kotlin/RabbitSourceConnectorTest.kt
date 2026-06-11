@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.assertDoesNotThrow
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -32,10 +33,12 @@ class RabbitSourceConnectorTest {
     }
 
     @org.junit.jupiter.api.Test
-    @DisplayName("Connector should return correct version")
+    @DisplayName("Connector should return a version read from version.properties")
     fun testVersion() {
         val version = connector.version()
-        assertEquals("1.0.0", version)
+        // Version is sourced from the generated version.properties on the classpath.
+        assertTrue(version.isNotBlank(), "Version should not be blank")
+        assertNotEquals("unknown", version, "Version should be resolved, not the fallback")
     }
 
     @org.junit.jupiter.api.Test

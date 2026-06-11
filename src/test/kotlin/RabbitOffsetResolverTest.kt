@@ -36,9 +36,19 @@ class RabbitOffsetResolverTest {
         val input = "01.01.2024 12:00:00"
         val expectedTimestamp =
             LocalDateTime.parse(input, DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"))
-                .toEpochSecond(ZoneOffset.UTC)
+                .toInstant(ZoneOffset.UTC)
+                .toEpochMilli()
 
         val result = RabbitOffsetResolver.resolveOffset(input)
         assertEquals(OffsetSpecification.timestamp(expectedTimestamp), result)
+    }
+
+    @Test
+    @DisplayName("Timestamp offset must be expressed in milliseconds, not seconds")
+    fun testTimestampUnitIsMillis() {
+        // 2024-01-01T12:00:00Z == 1704110400 seconds == 1704110400000 milliseconds.
+        val expectedMillis = 1_704_110_400_000L
+        val result = RabbitOffsetResolver.resolveOffset("01.01.2024 12:00:00")
+        assertEquals(OffsetSpecification.timestamp(expectedMillis), result)
     }
 }

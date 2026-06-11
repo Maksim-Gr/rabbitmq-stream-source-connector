@@ -21,6 +21,21 @@ class RabbitSourceConfig(
         private const val RABBITMQ_TLS_ENABLED = "rabbitmq.tls.enabled"
         private const val RABBITMQ_TLS_TRUSTSTORE_PATH = "rabbitmq.tls.truststore.path"
         private const val RABBITMQ_TLS_TRUSTSTORE_PASSWORD = "rabbitmq.tls.truststore.password"
+        private const val RABBITMQ_TLS_KEYSTORE_PATH = "rabbitmq.tls.keystore.path"
+        private const val RABBITMQ_TLS_KEYSTORE_PASSWORD = "rabbitmq.tls.keystore.password"
+        private const val RABBITMQ_MESSAGE_FORMAT = "rabbitmq.message.format"
+        private const val RABBITMQ_HEADERS_ENABLED = "rabbitmq.headers.enabled"
+        private const val RABBITMQ_MESSAGE_KEY = "rabbitmq.message.key"
+        private const val RABBITMQ_QUEUE_BUFFER_SIZE = "rabbitmq.queue.buffer.size"
+        private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
+        private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
+
+        private val MESSAGE_FORMAT_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is String && value.trim().lowercase() !in setOf("string", "bytes")) {
+                    throw ConfigException(name, value, "Must be 'string' or 'bytes'")
+                }
+            }
 
         private val NON_EMPTY_STRING_VALIDATOR =
             ConfigDef.Validator { name, value ->
@@ -187,6 +202,92 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.MEDIUM,
                     "TLS Truststore Password",
+                ).define(
+                    RABBITMQ_TLS_KEYSTORE_PATH,
+                    ConfigDef.Type.STRING,
+                    "",
+                    ConfigDef.Importance.MEDIUM,
+                    "Path to a JKS keystore holding the client certificate for mutual TLS. Omit to disable mTLS.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.MEDIUM,
+                    "TLS Keystore Path",
+                ).define(
+                    RABBITMQ_TLS_KEYSTORE_PASSWORD,
+                    ConfigDef.Type.PASSWORD,
+                    "",
+                    ConfigDef.Importance.MEDIUM,
+                    "Password for the JKS keystore used for mutual TLS.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.MEDIUM,
+                    "TLS Keystore Password",
+                ).define(
+                    RABBITMQ_MESSAGE_FORMAT,
+                    ConfigDef.Type.STRING,
+                    "string",
+                    MESSAGE_FORMAT_VALIDATOR,
+                    ConfigDef.Importance.MEDIUM,
+                    "How message bodies are emitted: 'string' (UTF-8 text, STRING_SCHEMA) or 'bytes' (raw bytes, BYTES_SCHEMA).",
+                    "Message",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Message Format",
+                ).define(
+                    RABBITMQ_HEADERS_ENABLED,
+                    ConfigDef.Type.BOOLEAN,
+                    false,
+                    ConfigDef.Importance.LOW,
+                    "When true, RabbitMQ application properties are copied to Kafka record headers.",
+                    "Message",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Headers Enabled",
+                ).define(
+                    RABBITMQ_MESSAGE_KEY,
+                    ConfigDef.Type.STRING,
+                    "",
+                    ConfigDef.Importance.LOW,
+                    "Optional source for the Kafka record key: 'messageId', 'correlationId', or the name of an " +
+                        "application property. Empty means no key.",
+                    "Message",
+                    -1,
+                    ConfigDef.Width.MEDIUM,
+                    "Message Key Source",
+                ).define(
+                    RABBITMQ_QUEUE_BUFFER_SIZE,
+                    ConfigDef.Type.INT,
+                    10000,
+                    ConfigDef.Range.atLeast(1),
+                    ConfigDef.Importance.MEDIUM,
+                    "Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka. " +
+                        "The consumer thread blocks (backpressure) when full.",
+                    "Advanced Settings",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Internal Buffer Size",
+                ).define(
+                    RABBITMQ_RECOVERY_BACKOFF_SECONDS,
+                    ConfigDef.Type.INT,
+                    5,
+                    ConfigDef.Range.atLeast(1),
+                    ConfigDef.Importance.LOW,
+                    "Fixed back-off in seconds between RabbitMQ Streams connection recovery attempts.",
+                    "Advanced Settings",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Recovery Back-off Seconds",
+                ).define(
+                    RABBITMQ_POLL_MAX_BATCH_SIZE,
+                    ConfigDef.Type.INT,
+                    1000,
+                    ConfigDef.Range.atLeast(1),
+                    ConfigDef.Importance.LOW,
+                    "Maximum number of records returned from a single poll() call.",
+                    "Advanced Settings",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Poll Max Batch Size",
                 )
     }
 }

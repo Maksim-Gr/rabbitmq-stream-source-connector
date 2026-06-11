@@ -5,6 +5,7 @@ import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTaskContext
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -23,7 +24,8 @@ class RabbitSourceTaskTest {
     @Test
     fun testVersion() {
         val version = task.version()
-        assertEquals("1.0.0", version)
+        assertTrue(version.isNotBlank(), "Version should not be blank")
+        assertNotEquals("unknown", version, "Version should be resolved from version.properties")
     }
 
     @Test
@@ -54,6 +56,29 @@ class RabbitSourceTaskTest {
     }
 
     @Test
+    fun `poll returns at most pollMaxBatchSize records`() {
+        setPollMaxBatchSize(task, 3)
+        val queue = getMessageQueue(task)
+        repeat(10) { i ->
+            queue.put(
+                SourceRecord(
+                    mapOf("queue" to "test"),
+                    mapOf("offset" to i.toLong()),
+                    "test-topic",
+                    null,
+                    null,
+                    null,
+                    Schema.STRING_SCHEMA,
+                    "msg-$i",
+                ),
+            )
+        }
+
+        val records = task.poll()
+        assertEquals(3, records.size, "poll should be capped at pollMaxBatchSize")
+    }
+
+    @Test
     fun `poll drains all enqueued records`() {
         val queue = getMessageQueue(task)
         repeat(5) { i ->
@@ -80,5 +105,14 @@ class RabbitSourceTaskTest {
         val field: Field = RabbitSourceTask::class.java.getDeclaredField("messageQueue")
         field.isAccessible = true
         return field.get(task) as java.util.concurrent.LinkedBlockingQueue<SourceRecord>
+    }
+
+    private fun setPollMaxBatchSize(
+        task: RabbitSourceTask,
+        value: Int,
+    ) {
+        val field: Field = RabbitSourceTask::class.java.getDeclaredField("pollMaxBatchSize")
+        field.isAccessible = true
+        field.setInt(task, value)
     }
 }

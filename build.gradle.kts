@@ -5,7 +5,6 @@ val buildTimestamp: String = LocalDateTime.now().toString()
 plugins {
     `java-library`
     kotlin("jvm") version "2.3.20"
-    kotlin("plugin.serialization") version "2.3.20"
 
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
 }
@@ -25,21 +24,33 @@ configurations.all {
             select("org.lz4:lz4-java:1.10.1")
         }
     }
+    // Confluent test helpers pull an older Confluent-versioned kafka (e.g. 7.0.1-ccs)
+    // that lacks classes referenced by the 4.2.0 Connect API (e.g. PluginMetrics).
+    // Pin the Kafka artifacts to the version this connector targets.
+    resolutionStrategy.force(
+        "org.apache.kafka:kafka-clients:4.2.0",
+        "org.apache.kafka:connect-api:4.2.0",
+    )
 }
 
 dependencies {
+    // connect-api and kafka-clients are provided by the Kafka Connect runtime, so
+    // they must not be bundled into the plugin jar (avoids classloader conflicts).
     compileOnly("org.apache.kafka:connect-api:4.2.0")
-    implementation("org.apache.kafka:kafka-clients:4.2.0")
+    compileOnly("org.apache.kafka:kafka-clients:4.2.0")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-
+    // Only depend on the slf4j API; the Connect runtime supplies the logging backend.
     implementation("org.slf4j:slf4j-api:2.0.17")
-    runtimeOnly("ch.qos.logback:logback-classic:1.5.32")
-
-    implementation("commons-validator:commons-validator:1.10.1")
 
     implementation("com.rabbitmq:stream-client:1.6.0")
+
+    // The Connect APIs are compileOnly for the plugin, so tests must bring them in
+    // explicitly (at runtime) to exercise the connector code.
+    testImplementation("org.apache.kafka:connect-api:4.2.0")
+    testImplementation("org.apache.kafka:kafka-clients:4.2.0")
+
+    // Logging backend for local test runs only (not shipped in the plugin jar).
+    testRuntimeOnly("ch.qos.logback:logback-classic:1.5.32")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
@@ -56,7 +67,6 @@ dependencies {
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
     testImplementation("com.rabbitmq:amqp-client:5.30.0")
-    testCompileOnly("org.apache.kafka:connect-api:4.2.0")
 }
 
 kotlin {
@@ -89,6 +99,11 @@ tasks.test {
 }
 
 val integrationTest by tasks.registering(Test::class) {
+    // A manually registered Test task does not inherit the test source set, so wire it
+    // up explicitly; otherwise the task is NO-SOURCE and silently runs nothing.
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+
     useJUnitPlatform()
     reports.html.required.set(true)
 
@@ -138,6 +153,16 @@ tasks.register("generateVersion") {
             """.trimIndent(),
         )
     }
+}
+
+// Ensure version.properties is generated into the main resources output before the
+// classes are assembled, so it is present on the classpath for both the jar and tests.
+tasks.named("generateVersion") {
+    mustRunAfter("processResources")
+}
+
+tasks.named("classes") {
+    dependsOn("generateVersion")
 }
 
 tasks.build {
