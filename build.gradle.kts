@@ -4,7 +4,7 @@ val buildTimestamp: String = LocalDateTime.now().toString()
 
 plugins {
     `java-library`
-    kotlin("jvm") version "2.3.20"
+    kotlin("jvm") version "2.3.21"
 
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
 }
@@ -28,26 +28,26 @@ configurations.all {
     // that lacks classes referenced by the 4.2.0 Connect API (e.g. PluginMetrics).
     // Pin the Kafka artifacts to the version this connector targets.
     resolutionStrategy.force(
-        "org.apache.kafka:kafka-clients:4.2.0",
-        "org.apache.kafka:connect-api:4.2.0",
+        "org.apache.kafka:kafka-clients:4.3.0",
+        "org.apache.kafka:connect-api:4.3.0",
     )
 }
 
 dependencies {
     // connect-api and kafka-clients are provided by the Kafka Connect runtime, so
     // they must not be bundled into the plugin jar (avoids classloader conflicts).
-    compileOnly("org.apache.kafka:connect-api:4.2.0")
-    compileOnly("org.apache.kafka:kafka-clients:4.2.0")
+    compileOnly("org.apache.kafka:connect-api:4.3.0")
+    compileOnly("org.apache.kafka:kafka-clients:4.3.0")
 
     // Only depend on the slf4j API; the Connect runtime supplies the logging backend.
-    implementation("org.slf4j:slf4j-api:2.0.17")
+    implementation("org.slf4j:slf4j-api:2.0.18")
 
-    implementation("com.rabbitmq:stream-client:1.6.0")
+    implementation("com.rabbitmq:stream-client:1.7.0")
 
     // The Connect APIs are compileOnly for the plugin, so tests must bring them in
     // explicitly (at runtime) to exercise the connector code.
-    testImplementation("org.apache.kafka:connect-api:4.2.0")
-    testImplementation("org.apache.kafka:kafka-clients:4.2.0")
+    testImplementation("org.apache.kafka:connect-api:4.3.0")
+    testImplementation("org.apache.kafka:kafka-clients:4.3.0")
 
     // Logging backend for local test runs only (not shipped in the plugin jar).
     testRuntimeOnly("ch.qos.logback:logback-classic:1.5.32")
@@ -66,7 +66,7 @@ dependencies {
     testImplementation("org.sourcelab:kafka-connect-client:4.0.5")
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
-    testImplementation("com.rabbitmq:amqp-client:5.30.0")
+    testImplementation("com.rabbitmq:amqp-client:5.31.0")
 }
 
 kotlin {
