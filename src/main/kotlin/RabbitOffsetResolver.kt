@@ -29,9 +29,11 @@ object RabbitOffsetResolver {
 
     private fun String.toTimestampOrNull(): Long? =
         runCatching {
+            // OffsetSpecification.timestamp() expects milliseconds since the epoch.
             LocalDateTime
                 .parse(this, formatter)
-                .toEpochSecond(ZoneOffset.UTC)
+                .toInstant(ZoneOffset.UTC)
+                .toEpochMilli()
         }.onFailure {
             logger.debug("Failed to parse timestamp offset: '$this'", it)
         }.getOrNull()

@@ -6,12 +6,27 @@ import org.apache.kafka.connect.source.SourceConnector
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.time.Instant
+import java.util.Properties
 
 class RabbitSourceConnector : SourceConnector() {
     companion object {
         @JvmStatic
         val logger: Logger = LoggerFactory.getLogger(RabbitSourceConnector::class.java)
-        const val VERSION = "1.0.0"
+
+        /**
+         * Connector version, read from the generated version.properties on the
+         * classpath (see the generateVersion task in build.gradle.kts). Falls
+         * back to "unknown" if the resource is missing, e.g. when running from
+         * an IDE without the generated resources.
+         */
+        val VERSION: String =
+            runCatching {
+                RabbitSourceConnector::class.java
+                    .getResourceAsStream("/version.properties")
+                    ?.use { stream ->
+                        Properties().apply { load(stream) }.getProperty("Connector-Version")
+                    }
+            }.getOrNull() ?: "unknown"
     }
 
     private lateinit var settings: Map<String, String>

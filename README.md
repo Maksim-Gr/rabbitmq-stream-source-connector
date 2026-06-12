@@ -43,6 +43,14 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.tls.enabled                       | `false` | Enable TLS for the RabbitMQ Streams connection |
 | rabbitmq.tls.truststore.path               | `""`    | Path to a JKS truststore file. Omit to use the JVM default trust store (for publicly-trusted CAs) |
 | rabbitmq.tls.truststore.password           | `""`    | Password for the JKS truststore |
+| rabbitmq.tls.keystore.path                 | `""`    | Path to a JKS keystore holding the client certificate for mutual TLS. Omit to disable mTLS |
+| rabbitmq.tls.keystore.password             | `""`    | Password for the JKS keystore used for mutual TLS |
+| rabbitmq.message.format                    | `string` | How message bodies are emitted: `string` (UTF-8 text, `STRING_SCHEMA`) or `bytes` (raw bytes, `BYTES_SCHEMA`) |
+| rabbitmq.headers.enabled                   | `false` | When `true`, RabbitMQ application properties are copied to Kafka record headers |
+| rabbitmq.message.key                       | `""`    | Source for the Kafka record key: `messageId`, `correlationId`, or an application property name. Empty means no key |
+| rabbitmq.queue.buffer.size                 | `10000` | Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka |
+| rabbitmq.recovery.backoff.seconds          | `5`     | Fixed back-off in seconds between connection recovery attempts |
+| rabbitmq.poll.max.batch.size               | `1000`  | Maximum number of records returned from a single `poll()` call |
 
 
 ### Connector config
@@ -97,10 +105,22 @@ Set `rabbitmq.queue` to a comma-separated list to consume from more than one str
 
 # Operations
 
+### Offsets and delivery semantics
+On startup each task first checks Kafka Connect's offset store (via the
+`OffsetStorageReader`) for the last committed offset of every stream it owns. If one
+exists, the task resumes from the next offset; otherwise it starts from the configured
+`rabbitmq.offset`. Because the offset committed to Kafka is the source of truth, the
+connector provides **at-least-once** delivery — after a crash or rebalance, records
+that were buffered but not yet committed to Kafka may be redelivered (duplicates).
+Make downstream consumers idempotent if exactly-once is required.
+
 ### Backpressure
-The connector uses an internal buffer of 10,000 records between the RabbitMQ consumer thread and Kafka. When the buffer is full the consumer thread blocks until space is available — messages are never dropped. The current buffer depth is logged every 30 seconds at INFO level:
+The connector uses an internal buffer (default 10,000 records, see
+`rabbitmq.queue.buffer.size`) between the RabbitMQ consumer thread and Kafka. When the
+buffer is full the consumer thread blocks until space is available — messages are never
+dropped. The current buffer depth is logged every 30 seconds at INFO level:
 ```
-Internal message queue depth: 1234 / 10_000
+Internal message queue depth: 1234 / 10000
 ```
 
 ### Connection recovery
