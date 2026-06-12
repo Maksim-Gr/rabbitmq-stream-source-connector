@@ -67,7 +67,7 @@ class RabbitSourceTask : SourceTask() {
                     .host(config.getString("rabbitmq.host"))
                     .port(config.getInt("rabbitmq.port"))
                     .username(config.getString("rabbitmq.username"))
-                    .password(config.getString("rabbitmq.password"))
+                    .password(config.getPassword("rabbitmq.password").value())
                     .virtualHost(config.getString("rabbitmq.virtual.host"))
                     .requestedMaxFrameSize(config.getInt("rabbitmq.requested.frame.max"))
                     .requestedHeartbeat(
