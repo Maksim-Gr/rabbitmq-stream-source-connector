@@ -4,9 +4,11 @@ import com.rabbitmq.stream.Environment
 import com.rabbitmq.stream.Producer
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTaskContext
+import org.apache.kafka.connect.storage.OffsetStorageReader
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
 import org.testcontainers.containers.RabbitMQContainer
 import java.util.concurrent.TimeUnit
 
@@ -61,7 +63,12 @@ class RabbitSourceConnectorIntegrationTest {
     @BeforeEach
     fun startTask() {
         task = RabbitSourceTask()
-        task.initialize(mock(SourceTaskContext::class.java))
+        // The real Connect runtime always supplies an OffsetStorageReader; stub one
+        // here (returning no committed offset) so the task starts from the configured
+        // offset instead of NPEing on a null reader.
+        val context = mock(SourceTaskContext::class.java)
+        `when`(context.offsetStorageReader()).thenReturn(mock(OffsetStorageReader::class.java))
+        task.initialize(context)
         task.start(config)
     }
 
