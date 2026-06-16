@@ -53,7 +53,7 @@ dependencies {
     testRuntimeOnly("ch.qos.logback:logback-classic:1.5.32")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     testImplementation("org.mockito:mockito-core:5.23.0")
