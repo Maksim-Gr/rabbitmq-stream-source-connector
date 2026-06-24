@@ -68,8 +68,6 @@ class RabbitOffsetResolverTest {
     @Test
     @DisplayName("committedOffset coerces an Integer round-tripped through the JSON converter")
     fun testCommittedOffsetInteger() {
-        // Connect's JSON offset converter can narrow a committed Long back to an Integer.
-        // Matching only on Long would lose the offset and restart the stream from scratch.
         assertEquals(42L, RabbitOffsetResolver.committedOffset(mapOf("offset" to 42)))
     }
 }
