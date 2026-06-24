@@ -45,6 +45,12 @@ class RabbitSourceTask : SourceTask() {
     private var headersEnabled = false
     private var messageKeySource = ""
     private val running = AtomicBoolean(false)
+
+    // Set when a message handler hits an unrecoverable error. The handler runs on a
+    // RabbitMQ client thread, so it cannot fail the task directly; poll() re-throws this
+    // on the Connect worker thread instead of silently skipping the offending record.
+    @Volatile
+    private var failure: Throwable? = null
     private lateinit var queueMonitor: ScheduledExecutorService
 
     override fun version(): String = RabbitSourceConnector.VERSION
@@ -52,6 +58,7 @@ class RabbitSourceTask : SourceTask() {
     override fun start(props: MutableMap<String, String>) {
         logger.info("Starting RabbitSourceTask")
         try {
+            failure = null
             config = RabbitSourceConfig(props)
             bufferSize = config.getInt("rabbitmq.queue.buffer.size")
             pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size")
@@ -126,6 +133,7 @@ class RabbitSourceTask : SourceTask() {
     }
 
     override fun poll(): MutableList<SourceRecord> {
+        failure?.let { throw ConnectException("RabbitSourceTask failed while processing a message", it) }
         val records = mutableListOf<SourceRecord>()
         val first = messageQueue.poll(100, TimeUnit.MILLISECONDS) ?: return records
         records.add(first)
@@ -148,7 +156,7 @@ class RabbitSourceTask : SourceTask() {
             // resumes exactly where Kafka last acknowledged (at-least-once). Only when
             // no committed offset exists do we fall back to the configured start offset.
             val partition = mapOf("queue" to queueName)
-            val committedOffset = context.offsetStorageReader().offset(partition)?.get("offset") as? Long
+            val committedOffset = RabbitOffsetResolver.committedOffset(context.offsetStorageReader().offset(partition))
             val offsetSpec =
                 if (committedOffset != null) {
                     logger.info("Resuming queue '$queueName' from committed offset ${committedOffset + 1}")
@@ -162,7 +170,10 @@ class RabbitSourceTask : SourceTask() {
                 environment.consumerBuilder()
                     .stream(queueName)
                     .name("kafka-connector-$queueName")
-                    .autoTrackingStrategy().builder()
+                    // Kafka Connect's offset store is the single source of truth for resume
+                    // (see initializeConnection above). Disable server-side offset tracking so
+                    // the broker isn't carrying redundant, never-read offset commits.
+                    .noTrackingStrategy()
                     .offset(offsetSpec)
                     .messageHandler { ctx, msg ->
                         try {
@@ -173,10 +184,15 @@ class RabbitSourceTask : SourceTask() {
                             Thread.currentThread().interrupt()
                             logger.warn("Message handler interrupted for queue '$queueName'")
                         } catch (e: Exception) {
+                            // Don't swallow-and-skip: dropping a record here would let later
+                            // records advance the committed Kafka offset past it, silently
+                            // losing data and breaking the at-least-once guarantee. Record the
+                            // failure so poll() fails the task instead.
                             logger.error(
                                 "Error processing message from queue '$queueName' at offset ${ctx.offset()}",
                                 e,
                             )
+                            failure = e
                         }
                     }
                     .listeners(

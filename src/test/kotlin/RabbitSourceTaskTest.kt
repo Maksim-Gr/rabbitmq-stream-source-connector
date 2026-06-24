@@ -100,6 +100,25 @@ class RabbitSourceTaskTest {
         assertEquals(5, records.size)
     }
 
+    @Test
+    fun `poll throws when a message handler recorded a failure`() {
+        setFailure(task, RuntimeException("boom"))
+        val error =
+            org.junit.jupiter.api.Assertions.assertThrows(
+                org.apache.kafka.connect.errors.ConnectException::class.java,
+            ) { task.poll() }
+        assertEquals("boom", error.cause?.message)
+    }
+
+    private fun setFailure(
+        task: RabbitSourceTask,
+        value: Throwable,
+    ) {
+        val field: Field = RabbitSourceTask::class.java.getDeclaredField("failure")
+        field.isAccessible = true
+        field.set(task, value)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun getMessageQueue(task: RabbitSourceTask): java.util.concurrent.LinkedBlockingQueue<SourceRecord> {
         val field: Field = RabbitSourceTask::class.java.getDeclaredField("messageQueue")

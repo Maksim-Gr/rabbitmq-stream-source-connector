@@ -27,6 +27,17 @@ object RabbitOffsetResolver {
             }
         }
 
+    /**
+     * Coerces the source offset read back from Kafka Connect's offset store into a Long.
+     *
+     * Connect serialises source offsets through a JSON converter, so a value committed as a
+     * Long can round-trip back as an Integer (Jackson narrows numeric types to the smallest
+     * that fits). Matching only on `Long` would miss the committed offset and silently restart
+     * the stream from the configured start offset. Accepting any [Number] keeps resume robust
+     * regardless of the converter in use.
+     */
+    fun committedOffset(storedOffset: Map<String, Any?>?): Long? = (storedOffset?.get("offset") as? Number)?.toLong()
+
     private fun String.toTimestampOrNull(): Long? =
         runCatching {
             // OffsetSpecification.timestamp() expects milliseconds since the epoch.
