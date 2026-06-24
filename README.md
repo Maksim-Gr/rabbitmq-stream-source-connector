@@ -1,5 +1,72 @@
-# RabbitMQ streams source connector
-A Kotlin-based Kafka Connect Source Connector for RabbitMQ Streams.
+# RabbitMQ Streams source connector
+
+A Kotlin-based Kafka Connect **source** connector that streams messages from
+[RabbitMQ Streams](https://www.rabbitmq.com/docs/streams) (the stream protocol on port `5552`, not AMQP)
+into Kafka topics, with at-least-once delivery, TLS/mTLS, backpressure and automatic connection recovery.
+
+[![CI](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/actions/workflows/ci.yaml/badge.svg)](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/Maksim-Gr/rabbitmq-stream-source-connector?sort=semver)](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/releases)
+[![License](https://img.shields.io/github/license/Maksim-Gr/rabbitmq-stream-source-connector)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+
+## Why this connector?
+
+RabbitMQ Streams is a persistent, replayable log that speaks its own binary protocol on port `5552` —
+distinct from classic AMQP queues. This connector consumes a stream over that protocol and writes each
+message to Kafka, tracking progress in Kafka Connect's own offset store so it resumes exactly where it
+left off after a restart or rebalance. Use it to bridge RabbitMQ Streams workloads into a Kafka-based
+pipeline without writing custom glue code.
+
+## Quickstart
+
+Spin up RabbitMQ + Kafka + Kafka Connect with the bundled `docker-compose.yml` and stream a message
+end-to-end. Requires Docker and a JDK 17.
+
+```bash
+# 1. Build the connector jar (lands in build/libs, which docker-compose mounts into Connect)
+./gradlew clean build
+
+# 2. Start RabbitMQ, a 3-broker Kafka cluster and Kafka Connect
+docker compose up -d
+
+# 3. Wait until the Connect REST API is ready
+until curl -sf http://localhost:8083/ >/dev/null; do sleep 2; done
+
+# 4. Create a RabbitMQ stream and publish a test message into it (via the management HTTP API)
+curl -s -u guest:guest -X PUT http://localhost:15672/api/queues/%2f/orders \
+  -H 'content-type: application/json' \
+  -d '{"durable":true,"arguments":{"x-queue-type":"stream"}}'
+curl -s -u guest:guest -X POST http://localhost:15672/api/exchanges/%2f/amq.default/publish \
+  -H 'content-type: application/json' \
+  -d '{"properties":{},"routing_key":"orders","payload":"{\"id\":1,\"item\":\"book\"}","payload_encoding":"string"}'
+
+# 5. Deploy the connector
+curl -s -X POST http://localhost:8083/connectors \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "rabbitmq-source",
+    "config": {
+      "connector.class": "com.github.maksimgr.RabbitSourceConnector",
+      "tasks.max": "1",
+      "rabbitmq.host": "rabbitmq",
+      "rabbitmq.port": "5552",
+      "rabbitmq.username": "guest",
+      "rabbitmq.password": "guest",
+      "rabbitmq.queue": "orders",
+      "rabbitmq.offset": "first",
+      "kafka.topic": "rabbitmq.messages"
+    }
+  }'
+
+# 6. Confirm the connector and its task are RUNNING
+curl -s http://localhost:8083/connectors/rabbitmq-source/status
+
+# 7. Read the message back out of Kafka
+docker compose exec kafka1 kafka-console-consumer \
+  --bootstrap-server kafka1:9093 --topic rabbitmq.messages --from-beginning --timeout-ms 10000
+```
+
+You should see `{"id":1,"item":"book"}` printed by the console consumer. Tear down with `docker compose down -v`.
 
 ## Installation
 Follow these steps to install and deploy the RabbitMQ Source Connector:
