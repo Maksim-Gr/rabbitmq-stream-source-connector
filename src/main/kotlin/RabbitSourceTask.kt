@@ -45,6 +45,9 @@ class RabbitSourceTask : SourceTask() {
     private var headersEnabled = false
     private var messageKeySource = ""
     private val running = AtomicBoolean(false)
+
+    @Volatile
+    private var failure: Throwable? = null
     private lateinit var queueMonitor: ScheduledExecutorService
 
     override fun version(): String = RabbitSourceConnector.VERSION
@@ -52,6 +55,7 @@ class RabbitSourceTask : SourceTask() {
     override fun start(props: MutableMap<String, String>) {
         logger.info("Starting RabbitSourceTask")
         try {
+            failure = null
             config = RabbitSourceConfig(props)
             bufferSize = config.getInt("rabbitmq.queue.buffer.size")
             pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size")
@@ -126,6 +130,7 @@ class RabbitSourceTask : SourceTask() {
     }
 
     override fun poll(): MutableList<SourceRecord> {
+        failure?.let { throw ConnectException("RabbitSourceTask failed while processing a message", it) }
         val records = mutableListOf<SourceRecord>()
         val first = messageQueue.poll(100, TimeUnit.MILLISECONDS) ?: return records
         records.add(first)
@@ -148,7 +153,7 @@ class RabbitSourceTask : SourceTask() {
             // resumes exactly where Kafka last acknowledged (at-least-once). Only when
             // no committed offset exists do we fall back to the configured start offset.
             val partition = mapOf("queue" to queueName)
-            val committedOffset = context.offsetStorageReader().offset(partition)?.get("offset") as? Long
+            val committedOffset = RabbitOffsetResolver.committedOffset(context.offsetStorageReader().offset(partition))
             val offsetSpec =
                 if (committedOffset != null) {
                     logger.info("Resuming queue '$queueName' from committed offset ${committedOffset + 1}")
@@ -162,7 +167,7 @@ class RabbitSourceTask : SourceTask() {
                 environment.consumerBuilder()
                     .stream(queueName)
                     .name("kafka-connector-$queueName")
-                    .autoTrackingStrategy().builder()
+                    .noTrackingStrategy()
                     .offset(offsetSpec)
                     .messageHandler { ctx, msg ->
                         try {
@@ -177,6 +182,7 @@ class RabbitSourceTask : SourceTask() {
                                 "Error processing message from queue '$queueName' at offset ${ctx.offset()}",
                                 e,
                             )
+                            failure = e
                         }
                     }
                     .listeners(

@@ -51,4 +51,23 @@ class RabbitOffsetResolverTest {
         val result = RabbitOffsetResolver.resolveOffset("01.01.2024 12:00:00")
         assertEquals(OffsetSpecification.timestamp(expectedMillis), result)
     }
+
+    @Test
+    @DisplayName("committedOffset returns null when no offset has been stored")
+    fun testCommittedOffsetMissing() {
+        assertNull(RabbitOffsetResolver.committedOffset(null))
+        assertNull(RabbitOffsetResolver.committedOffset(emptyMap()))
+    }
+
+    @Test
+    @DisplayName("committedOffset reads a stored Long")
+    fun testCommittedOffsetLong() {
+        assertEquals(42L, RabbitOffsetResolver.committedOffset(mapOf("offset" to 42L)))
+    }
+
+    @Test
+    @DisplayName("committedOffset coerces an Integer round-tripped through the JSON converter")
+    fun testCommittedOffsetInteger() {
+        assertEquals(42L, RabbitOffsetResolver.committedOffset(mapOf("offset" to 42)))
+    }
 }

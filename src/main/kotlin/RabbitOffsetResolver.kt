@@ -27,6 +27,8 @@ object RabbitOffsetResolver {
             }
         }
 
+    fun committedOffset(storedOffset: Map<String, Any?>?): Long? = (storedOffset?.get("offset") as? Number)?.toLong()
+
     private fun String.toTimestampOrNull(): Long? =
         runCatching {
             // OffsetSpecification.timestamp() expects milliseconds since the epoch.
