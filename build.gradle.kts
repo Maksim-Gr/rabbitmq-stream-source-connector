@@ -28,16 +28,16 @@ configurations.all {
     // that lacks classes referenced by the 4.2.0 Connect API (e.g. PluginMetrics).
     // Pin the Kafka artifacts to the version this connector targets.
     resolutionStrategy.force(
-        "org.apache.kafka:kafka-clients:4.3.0",
-        "org.apache.kafka:connect-api:4.3.0",
+        "org.apache.kafka:kafka-clients:4.3.1",
+        "org.apache.kafka:connect-api:4.3.1",
     )
 }
 
 dependencies {
     // connect-api and kafka-clients are provided by the Kafka Connect runtime, so
     // they must not be bundled into the plugin jar (avoids classloader conflicts).
-    compileOnly("org.apache.kafka:connect-api:4.3.0")
-    compileOnly("org.apache.kafka:kafka-clients:4.3.0")
+    compileOnly("org.apache.kafka:connect-api:4.3.1")
+    compileOnly("org.apache.kafka:kafka-clients:4.3.1")
 
     // Only depend on the slf4j API; the Connect runtime supplies the logging backend.
     implementation("org.slf4j:slf4j-api:2.0.18")
@@ -46,8 +46,8 @@ dependencies {
 
     // The Connect APIs are compileOnly for the plugin, so tests must bring them in
     // explicitly (at runtime) to exercise the connector code.
-    testImplementation("org.apache.kafka:connect-api:4.3.0")
-    testImplementation("org.apache.kafka:kafka-clients:4.3.0")
+    testImplementation("org.apache.kafka:connect-api:4.3.1")
+    testImplementation("org.apache.kafka:kafka-clients:4.3.1")
 
     // Logging backend for local test runs only (not shipped in the plugin jar).
     testRuntimeOnly("ch.qos.logback:logback-classic:1.5.34")
