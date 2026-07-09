@@ -1,7 +1,7 @@
 {
   "name": "rabbitmq-source-connector",
   "config": {
-    "connector.class": "RabbitSourceConnector",
+    "connector.class": "com.github.maksimgr.RabbitSourceConnector",
     "tasks.max": "2",
 
     "kafka.topic": "rabbitmq.messages",

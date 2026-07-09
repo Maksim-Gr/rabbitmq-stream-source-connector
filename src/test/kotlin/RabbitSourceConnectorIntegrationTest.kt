@@ -99,7 +99,68 @@ class RabbitSourceConnectorIntegrationTest {
         assertEquals(testMessage, payload)
     }
 
-    private fun createStream() {
+    @Test
+    fun `should resume from committed offset after restart`() {
+        val streamName = "resume_queue"
+        createStream(streamName)
+        (1..5).forEach { sendMessageToRabbitMQ(streamName, "message-$it") }
+
+        // First run: no committed offset, so the task starts from the configured
+        // offset ('first') and consumes everything published so far.
+        val firstTask = startResumeTask(streamName, committedOffset = null)
+        val firstRun = pollUntil(firstTask, 5)
+        assertEquals((1..5).map { "message-$it" }, firstRun.map { it.value() as String })
+        val lastCommitted = firstRun.last().sourceOffset()["offset"] as Long
+        firstTask.stop()
+
+        (6..7).forEach { sendMessageToRabbitMQ(streamName, "message-$it") }
+
+        // Restart with the committed offset as the Connect runtime would supply it after
+        // an offset flush. The JSON converter round-trips small numbers as Integer, so
+        // pass an Int to exercise the same coercion the real runtime triggers.
+        val restartedTask = startResumeTask(streamName, committedOffset = lastCommitted.toInt())
+        val secondRun = pollUntil(restartedTask, 2)
+        restartedTask.stop()
+
+        assertEquals(
+            listOf("message-6", "message-7"),
+            secondRun.map { it.value() as String },
+            "Restarted task must resume after the committed offset: no replay, no gap",
+        )
+    }
+
+    private fun startResumeTask(
+        streamName: String,
+        committedOffset: Any?,
+    ): RabbitSourceTask {
+        val reader = mock(OffsetStorageReader::class.java)
+        if (committedOffset != null) {
+            `when`(reader.offset(mapOf("queue" to streamName))).thenReturn(mapOf("offset" to committedOffset))
+        }
+        val context = mock(SourceTaskContext::class.java)
+        `when`(context.offsetStorageReader()).thenReturn(reader)
+
+        val resumeTask = RabbitSourceTask()
+        resumeTask.initialize(context)
+        val taskConfig = config.toMutableMap().apply { put("rabbitmq.queue", streamName) }
+        resumeTask.start(taskConfig)
+        return resumeTask
+    }
+
+    private fun pollUntil(
+        pollingTask: RabbitSourceTask,
+        expectedCount: Int,
+        timeoutMs: Long = 15_000,
+    ): List<SourceRecord> {
+        val records = mutableListOf<SourceRecord>()
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline && records.size < expectedCount) {
+            records.addAll(pollingTask.poll())
+        }
+        return records
+    }
+
+    private fun createStream(streamName: String = "test_queue") {
         val environment =
             Environment
                 .builder()
@@ -111,7 +172,7 @@ class RabbitSourceConnectorIntegrationTest {
 
         environment
             .streamCreator()
-            .stream("test_queue")
+            .stream(streamName)
             .create()
 
         environment.close()

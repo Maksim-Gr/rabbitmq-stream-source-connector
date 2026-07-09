@@ -50,8 +50,14 @@ jobs:
       - name: Set version in build file
         run: sed -i "s/version = \".*\"/version = \"${{ steps.version.outputs.VERSION }}\"/" build.gradle.kts
 
+      - name: Run unit tests
+        run: ./gradlew test --no-daemon --console=plain
+
       - name: Build
-        run: ./gradlew build -x test --no-daemon --console=plain
+        run: ./gradlew build -x integrationTest --no-daemon --console=plain
+
+      - name: Run integration tests
+        run: ./gradlew integrationTest --no-daemon --console=plain
 
       - name: Release with JReleaser
         uses: jreleaser/release-action@v2

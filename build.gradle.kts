@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.github.maksimgr"
-version = "0.2.0"
+version = "0.3.0"
 
 repositories {
     mavenCentral()
@@ -25,7 +25,7 @@ configurations.all {
         }
     }
     // Confluent test helpers pull an older Confluent-versioned kafka (e.g. 7.0.1-ccs)
-    // that lacks classes referenced by the 4.2.0 Connect API (e.g. PluginMetrics).
+    // that lacks classes referenced by the 4.3.1 Connect API (e.g. PluginMetrics).
     // Pin the Kafka artifacts to the version this connector targets.
     resolutionStrategy.force(
         "org.apache.kafka:kafka-clients:4.3.1",
