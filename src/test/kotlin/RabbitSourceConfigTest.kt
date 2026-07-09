@@ -107,9 +107,27 @@ class RabbitSourceConfigTest {
         assertEquals("string", config.getString("rabbitmq.message.format"))
         assertEquals(false, config.getBoolean("rabbitmq.tls.enabled"))
         assertEquals(false, config.getBoolean("rabbitmq.headers.enabled"))
+        assertEquals(false, config.getBoolean("rabbitmq.headers.amqp.enabled"))
+        assertEquals("JKS", config.getString("rabbitmq.tls.truststore.type"))
+        assertEquals("JKS", config.getString("rabbitmq.tls.keystore.type"))
         assertEquals(10000, config.getInt("rabbitmq.queue.buffer.size"))
         assertEquals(5, config.getInt("rabbitmq.recovery.backoff.seconds"))
         assertEquals(1000, config.getInt("rabbitmq.poll.max.batch.size"))
+    }
+
+    @Test
+    @DisplayName("Truststore/keystore type accepts JKS/PKCS12, rejects anything else")
+    fun testKeystoreTypeValidation() {
+        listOf("rabbitmq.tls.truststore.type", "rabbitmq.tls.keystore.type").forEach { name ->
+            listOf("JKS", "jks", "PKCS12", "pkcs12").forEach { type ->
+                assertDoesNotThrow({ RabbitSourceConfig(validProps(mapOf(name to type))) }, "Expected '$type' to be valid for $name")
+            }
+            assertThrows(
+                ConfigException::class.java,
+                { RabbitSourceConfig(validProps(mapOf(name to "PEM"))) },
+                "Expected 'PEM' to be rejected for $name",
+            )
+        }
     }
 
     @Test

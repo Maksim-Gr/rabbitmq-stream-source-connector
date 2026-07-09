@@ -23,8 +23,11 @@ class RabbitSourceConfig(
         private const val RABBITMQ_TLS_TRUSTSTORE_PASSWORD = "rabbitmq.tls.truststore.password"
         private const val RABBITMQ_TLS_KEYSTORE_PATH = "rabbitmq.tls.keystore.path"
         private const val RABBITMQ_TLS_KEYSTORE_PASSWORD = "rabbitmq.tls.keystore.password"
+        private const val RABBITMQ_TLS_TRUSTSTORE_TYPE = "rabbitmq.tls.truststore.type"
+        private const val RABBITMQ_TLS_KEYSTORE_TYPE = "rabbitmq.tls.keystore.type"
         private const val RABBITMQ_MESSAGE_FORMAT = "rabbitmq.message.format"
         private const val RABBITMQ_HEADERS_ENABLED = "rabbitmq.headers.enabled"
+        private const val RABBITMQ_HEADERS_AMQP_ENABLED = "rabbitmq.headers.amqp.enabled"
         private const val RABBITMQ_MESSAGE_KEY = "rabbitmq.message.key"
         private const val RABBITMQ_QUEUE_BUFFER_SIZE = "rabbitmq.queue.buffer.size"
         private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
@@ -45,6 +48,13 @@ class RabbitSourceConfig(
             }
 
         private val PORT_RANGE_VALIDATOR = ConfigDef.Range.between(1, 65535)
+
+        private val KEYSTORE_TYPE_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is String && value.trim().uppercase() !in setOf("JKS", "PKCS12")) {
+                    throw ConfigException(name, value, "Must be 'JKS' or 'PKCS12'")
+                }
+            }
 
         private val OFFSET_VALIDATOR =
             ConfigDef.Validator { name, value ->
@@ -197,17 +207,28 @@ class RabbitSourceConfig(
                     ConfigDef.Type.PASSWORD,
                     "",
                     ConfigDef.Importance.MEDIUM,
-                    "Password for the JKS truststore.",
+                    "Password for the truststore.",
                     "TLS",
                     -1,
                     ConfigDef.Width.MEDIUM,
                     "TLS Truststore Password",
                 ).define(
+                    RABBITMQ_TLS_TRUSTSTORE_TYPE,
+                    ConfigDef.Type.STRING,
+                    "JKS",
+                    KEYSTORE_TYPE_VALIDATOR,
+                    ConfigDef.Importance.LOW,
+                    "Truststore format: 'JKS' or 'PKCS12'.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "TLS Truststore Type",
+                ).define(
                     RABBITMQ_TLS_KEYSTORE_PATH,
                     ConfigDef.Type.STRING,
                     "",
                     ConfigDef.Importance.MEDIUM,
-                    "Path to a JKS keystore holding the client certificate for mutual TLS. Omit to disable mTLS.",
+                    "Path to a keystore holding the client certificate for mutual TLS. Omit to disable mTLS.",
                     "TLS",
                     -1,
                     ConfigDef.Width.MEDIUM,
@@ -217,11 +238,22 @@ class RabbitSourceConfig(
                     ConfigDef.Type.PASSWORD,
                     "",
                     ConfigDef.Importance.MEDIUM,
-                    "Password for the JKS keystore used for mutual TLS.",
+                    "Password for the keystore used for mutual TLS.",
                     "TLS",
                     -1,
                     ConfigDef.Width.MEDIUM,
                     "TLS Keystore Password",
+                ).define(
+                    RABBITMQ_TLS_KEYSTORE_TYPE,
+                    ConfigDef.Type.STRING,
+                    "JKS",
+                    KEYSTORE_TYPE_VALIDATOR,
+                    ConfigDef.Importance.LOW,
+                    "Keystore format: 'JKS' or 'PKCS12'.",
+                    "TLS",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "TLS Keystore Type",
                 ).define(
                     RABBITMQ_MESSAGE_FORMAT,
                     ConfigDef.Type.STRING,
@@ -243,6 +275,18 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "Headers Enabled",
+                ).define(
+                    RABBITMQ_HEADERS_AMQP_ENABLED,
+                    ConfigDef.Type.BOOLEAN,
+                    false,
+                    ConfigDef.Importance.LOW,
+                    "When true, standard AMQP message properties (messageId, correlationId, contentType, " +
+                        "contentEncoding, to, subject, replyTo, groupId, creationTime) are copied to Kafka record " +
+                        "headers prefixed with 'amqp.'.",
+                    "Message",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "AMQP Headers Enabled",
                 ).define(
                     RABBITMQ_MESSAGE_KEY,
                     ConfigDef.Type.STRING,

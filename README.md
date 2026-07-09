@@ -108,12 +108,15 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.requested.heartbeat.seconds       | `60`    | Heartbeat interval in seconds for the RabbitMQ Streams connection |
 | rabbitmq.requested.frame.max               | `1048576` | Maximum frame size in bytes for the RabbitMQ Streams connection |
 | rabbitmq.tls.enabled                       | `false` | Enable TLS for the RabbitMQ Streams connection |
-| rabbitmq.tls.truststore.path               | `""`    | Path to a JKS truststore file. Omit to use the JVM default trust store (for publicly-trusted CAs) |
-| rabbitmq.tls.truststore.password           | `""`    | Password for the JKS truststore |
-| rabbitmq.tls.keystore.path                 | `""`    | Path to a JKS keystore holding the client certificate for mutual TLS. Omit to disable mTLS |
-| rabbitmq.tls.keystore.password             | `""`    | Password for the JKS keystore used for mutual TLS |
+| rabbitmq.tls.truststore.path               | `""`    | Path to a truststore file. Omit to use the JVM default trust store (for publicly-trusted CAs) |
+| rabbitmq.tls.truststore.password           | `""`    | Password for the truststore |
+| rabbitmq.tls.truststore.type                | `JKS`   | Truststore format: `JKS` or `PKCS12` |
+| rabbitmq.tls.keystore.path                 | `""`    | Path to a keystore holding the client certificate for mutual TLS. Omit to disable mTLS |
+| rabbitmq.tls.keystore.password             | `""`    | Password for the keystore used for mutual TLS |
+| rabbitmq.tls.keystore.type                  | `JKS`   | Keystore format: `JKS` or `PKCS12` |
 | rabbitmq.message.format                    | `string` | How message bodies are emitted: `string` (UTF-8 text, `STRING_SCHEMA`) or `bytes` (raw bytes, `BYTES_SCHEMA`) |
 | rabbitmq.headers.enabled                   | `false` | When `true`, RabbitMQ application properties are copied to Kafka record headers |
+| rabbitmq.headers.amqp.enabled              | `false` | When `true`, standard AMQP properties (`messageId`, `correlationId`, `contentType`, `contentEncoding`, `to`, `subject`, `replyTo`, `groupId`, `creationTime`) are copied to Kafka record headers prefixed with `amqp.` |
 | rabbitmq.message.key                       | `""`    | Source for the Kafka record key: `messageId`, `correlationId`, or an application property name. Empty means no key |
 | rabbitmq.queue.buffer.size                 | `10000` | Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka |
 | rabbitmq.recovery.backoff.seconds          | `5`     | Fixed back-off in seconds between connection recovery attempts |
@@ -180,6 +183,12 @@ exists, the task resumes from the next offset; otherwise it starts from the conf
 connector provides **at-least-once** delivery — after a crash or rebalance, records
 that were buffered but not yet committed to Kafka may be redelivered (duplicates).
 Make downstream consumers idempotent if exactly-once is required.
+
+### Record timestamp
+If the AMQP message carries a `creation-time` property, it is used as the Kafka record
+timestamp (`ConsumerRecord.timestamp()` downstream). Messages without a `creation-time`
+get no explicit timestamp, so Kafka assigns one on write (broker append time), same as
+before this was added.
 
 ### Backpressure
 The connector uses an internal buffer (default 10,000 records, see

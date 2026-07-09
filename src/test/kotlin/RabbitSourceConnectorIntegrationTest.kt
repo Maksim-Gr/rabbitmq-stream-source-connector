@@ -160,6 +160,89 @@ class RabbitSourceConnectorIntegrationTest {
         return records
     }
 
+    @Test
+    fun `should carry AMQP properties into record timestamp and headers when enabled`() {
+        val streamName = "props_queue"
+        createStream(streamName)
+
+        val creationTimeMillis = System.currentTimeMillis()
+        sendMessageWithPropertiesToRabbitMQ(streamName, "with-props", creationTimeMillis)
+
+        val reader = mock(OffsetStorageReader::class.java)
+        val context = mock(SourceTaskContext::class.java)
+        `when`(context.offsetStorageReader()).thenReturn(reader)
+
+        val propsTask = RabbitSourceTask()
+        propsTask.initialize(context)
+        propsTask.start(
+            config.toMutableMap().apply {
+                put("rabbitmq.queue", streamName)
+                put("rabbitmq.headers.enabled", "true")
+                put("rabbitmq.headers.amqp.enabled", "true")
+            },
+        )
+
+        val records = pollUntil(propsTask, 1)
+        propsTask.stop()
+
+        assertFalse(records.isEmpty(), "Should have received the message")
+        val record = records.first()
+
+        assertEquals(creationTimeMillis, record.timestamp())
+        assertEquals("corr-123", record.headers().lastWithName("amqp.correlationId").value())
+        assertEquals("text/plain", record.headers().lastWithName("amqp.contentType").value())
+        assertEquals(creationTimeMillis, record.headers().lastWithName("amqp.creationTime").value())
+        assertEquals("bar", record.headers().lastWithName("foo").value())
+    }
+
+    private fun sendMessageWithPropertiesToRabbitMQ(
+        streamName: String,
+        body: String,
+        creationTimeMillis: Long,
+    ) {
+        val environment =
+            Environment
+                .builder()
+                .host(host)
+                .port(port)
+                .username("guest")
+                .password("guest")
+                .build()
+
+        val producer: Producer =
+            environment
+                .producerBuilder()
+                .stream(streamName)
+                .build()
+
+        val latch = java.util.concurrent.CountDownLatch(1)
+
+        val msg =
+            producer
+                .messageBuilder()
+                .properties()
+                .correlationId("corr-123")
+                .contentType("text/plain")
+                .creationTime(creationTimeMillis)
+                .messageBuilder()
+                .applicationProperties()
+                .entry("foo", "bar")
+                .messageBuilder()
+                .addData(body.toByteArray())
+                .build()
+
+        producer.send(msg) { confirmationStatus ->
+            if (confirmationStatus.isConfirmed) {
+                latch.countDown()
+            }
+        }
+
+        latch.await(5, TimeUnit.SECONDS)
+
+        producer.close()
+        environment.close()
+    }
+
     private fun createStream(streamName: String = "test_queue") {
         val environment =
             Environment
