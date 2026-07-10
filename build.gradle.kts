@@ -4,9 +4,11 @@ val buildTimestamp: String = LocalDateTime.now().toString()
 
 plugins {
     `java-library`
+    jacoco
     kotlin("jvm") version "2.4.0"
 
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 group = "com.github.maksimgr"
@@ -73,6 +75,18 @@ kotlin {
     jvmToolchain(17)
 }
 
+jacoco {
+    toolVersion = "0.8.12"
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+}
+
 ktlint {
     version.set("1.2.1")
     android.set(false)
@@ -83,6 +97,11 @@ ktlint {
         reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.PLAIN_GROUP_BY_FILE)
         reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.CHECKSTYLE)
     }
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(files("config/detekt/detekt.yml"))
 }
 
 tasks.test {
@@ -96,6 +115,7 @@ tasks.test {
     }
 
     exclude("**/*IntegrationTest*")
+    finalizedBy(tasks.jacocoTestReport)
 }
 
 val integrationTest by tasks.registering(Test::class) {

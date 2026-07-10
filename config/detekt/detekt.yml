@@ -1,0 +1,37 @@
+build:
+  maxIssues: 0
+
+style:
+  MaxLineLength:
+    # Match the 140-char limit already enforced by ktlint (.editorconfig).
+    maxLineLength: 140
+  WildcardImport:
+    # Assertions.* / org.junit.jupiter.api.* wildcards are the established
+    # convention across this project's test suite.
+    active: false
+  ReturnCount:
+    # taskConfigs() uses two early-return guard clauses plus a final return;
+    # clearer than collapsing them into one condition.
+    max: 3
+
+naming:
+  InvalidPackageDeclaration:
+    # Kotlin sources live flat under src/main/kotlin and src/test/kotlin
+    # rather than nested under com/github/maksimgr — an intentional,
+    # project-wide layout, not a defect.
+    active: false
+
+complexity:
+  TooManyFunctions:
+    # RabbitSourceTask has 11 functions once messageHandler/stateListener
+    # construction is broken out into their own private helpers (done to
+    # satisfy LongMethod on initializeConnection) — allow a little headroom
+    # rather than re-merging them back into one long function.
+    thresholdInClasses: 12
+
+exceptions:
+  TooGenericExceptionCaught:
+    # start()/stop() intentionally catch a broad Exception when closing
+    # RabbitMQ resources so cleanup always runs to completion and is logged,
+    # rather than enumerating every checked exception type each client throws.
+    active: false

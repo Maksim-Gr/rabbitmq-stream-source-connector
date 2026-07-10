@@ -35,7 +35,13 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Run Unit Tests
-        run: ./gradlew test --no-daemon --console=plain
+        run: ./gradlew test jacocoTestReport --no-daemon --console=plain
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: build/reports/jacoco/test
 
       - name: Build
         run: ./gradlew build -x integrationTest --no-daemon --console=plain

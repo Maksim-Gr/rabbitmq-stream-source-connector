@@ -30,6 +30,10 @@ class RabbitSourceTask : SourceTask() {
         val logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)!!
 
         private const val DEFAULT_BUFFER_SIZE = 10_000
+        private const val DEFAULT_POLL_MAX_BATCH_SIZE = 1000
+        private const val QUEUE_MONITOR_INITIAL_DELAY_SECONDS = 30L
+        private const val QUEUE_MONITOR_PERIOD_SECONDS = 30L
+        private const val POLL_TIMEOUT_MILLIS = 100L
     }
 
     private lateinit var config: RabbitSourceConfig
@@ -39,10 +43,11 @@ class RabbitSourceTask : SourceTask() {
     @Volatile
     private var messageQueue = LinkedBlockingQueue<SourceRecord>(DEFAULT_BUFFER_SIZE)
     private var bufferSize = DEFAULT_BUFFER_SIZE
-    private var pollMaxBatchSize = 1000
+    private var pollMaxBatchSize = DEFAULT_POLL_MAX_BATCH_SIZE
     private lateinit var topic: String
     private var messageFormat = "string"
     private var headersEnabled = false
+    private var amqpHeadersEnabled = false
     private var messageKeySource = ""
     private val running = AtomicBoolean(false)
 
@@ -63,6 +68,7 @@ class RabbitSourceTask : SourceTask() {
             topic = config.getString("kafka.topic")
             messageFormat = config.getString("rabbitmq.message.format").lowercase()
             headersEnabled = config.getBoolean("rabbitmq.headers.enabled")
+            amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled")
             messageKeySource = config.getString("rabbitmq.message.key").trim()
             val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
             val envBuilder =
@@ -88,8 +94,8 @@ class RabbitSourceTask : SourceTask() {
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
                 { logger.info("Internal message queue depth: ${messageQueue.size} / $bufferSize") },
-                30,
-                30,
+                QUEUE_MONITOR_INITIAL_DELAY_SECONDS,
+                QUEUE_MONITOR_PERIOD_SECONDS,
                 TimeUnit.SECONDS,
             )
             running.set(true)
@@ -132,7 +138,7 @@ class RabbitSourceTask : SourceTask() {
     override fun poll(): MutableList<SourceRecord> {
         failure?.let { throw ConnectException("RabbitSourceTask failed while processing a message", it) }
         val records = mutableListOf<SourceRecord>()
-        val first = messageQueue.poll(100, TimeUnit.MILLISECONDS) ?: return records
+        val first = messageQueue.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) ?: return records
         records.add(first)
         // Cap the batch so a single poll cannot return an unbounded number of records.
         messageQueue.drainTo(records, pollMaxBatchSize - 1)
@@ -141,9 +147,7 @@ class RabbitSourceTask : SourceTask() {
 
     private fun initializeConnection() {
         val queueNames = config.getList("rabbitmq.queue").map { it.trim() }.filter { it.isNotEmpty() }
-        if (queueNames.isEmpty()) {
-            throw IllegalArgumentException("rabbitmq queue must be provided")
-        }
+        require(queueNames.isNotEmpty()) { "rabbitmq queue must be provided" }
         val offsetStr = config.getString("rabbitmq.offset")
         val configOffsetSpec = RabbitOffsetResolver.resolveOffset(offsetStr)
         logger.info("RabbitSourceTask initializing connection")
@@ -169,46 +173,47 @@ class RabbitSourceTask : SourceTask() {
                     .name("kafka-connector-$queueName")
                     .noTrackingStrategy()
                     .offset(offsetSpec)
-                    .messageHandler { ctx, msg ->
-                        try {
-                            val offset = ctx.offset()
-                            logger.debug("Received message at offset $offset")
-                            messageQueue.put(buildRecord(partition, offset, msg))
-                        } catch (e: InterruptedException) {
-                            Thread.currentThread().interrupt()
-                            logger.warn("Message handler interrupted for queue '$queueName'")
-                        } catch (e: Exception) {
-                            logger.error(
-                                "Error processing message from queue '$queueName' at offset ${ctx.offset()}",
-                                e,
-                            )
-                            failure = e
-                        }
-                    }
-                    .listeners(
-                        Resource.StateListener { ctx ->
-                            when (ctx.currentState()) {
-                                Resource.State.RECOVERING ->
-                                    logger.warn("Consumer for '$queueName' is recovering (previous state: ${ctx.previousState()})")
-                                Resource.State.OPEN ->
-                                    if (ctx.previousState() == Resource.State.RECOVERING) {
-                                        logger.info("Consumer for '$queueName' recovered successfully")
-                                    }
-                                Resource.State.CLOSED ->
-                                    if (running.get()) {
-                                        logger.error(
-                                            "Consumer for '$queueName' closed unexpectedly (previous state: ${ctx.previousState()})",
-                                        )
-                                    }
-                                else -> {}
-                            }
-                        },
-                    )
+                    .messageHandler(buildMessageHandler(queueName, partition))
+                    .listeners(buildStateListener(queueName))
                     .build()
             consumers.add(consumer)
         }
         logger.info("Started consuming RabbitMQ streams: $queueNames (configured offset: $offsetStr)")
     }
+
+    private fun buildMessageHandler(
+        queueName: String,
+        partition: Map<String, String>,
+    ) = com.rabbitmq.stream.MessageHandler { ctx, msg ->
+        try {
+            val offset = ctx.offset()
+            logger.debug("Received message at offset $offset")
+            messageQueue.put(buildRecord(partition, offset, msg))
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            logger.warn("Message handler interrupted for queue '$queueName'")
+        } catch (e: Exception) {
+            logger.error("Error processing message from queue '$queueName' at offset ${ctx.offset()}", e)
+            failure = e
+        }
+    }
+
+    private fun buildStateListener(queueName: String) =
+        Resource.StateListener { ctx ->
+            when (ctx.currentState()) {
+                Resource.State.RECOVERING ->
+                    logger.warn("Consumer for '$queueName' is recovering (previous state: ${ctx.previousState()})")
+                Resource.State.OPEN ->
+                    if (ctx.previousState() == Resource.State.RECOVERING) {
+                        logger.info("Consumer for '$queueName' recovered successfully")
+                    }
+                Resource.State.CLOSED ->
+                    if (running.get()) {
+                        logger.error("Consumer for '$queueName' closed unexpectedly (previous state: ${ctx.previousState()})")
+                    }
+                else -> {}
+            }
+        }
 
     private fun buildRecord(
         partition: Map<String, String>,
@@ -232,6 +237,11 @@ class RabbitSourceTask : SourceTask() {
                 if (propValue != null) headers.addString(name, propValue.toString())
             }
         }
+        if (amqpHeadersEnabled) {
+            addAmqpHeaders(headers, msg)
+        }
+
+        val timestamp = msg.properties?.creationTime?.takeIf { it > 0 }
 
         return SourceRecord(
             partition,
@@ -242,9 +252,26 @@ class RabbitSourceTask : SourceTask() {
             key,
             valueSchema,
             value,
-            null,
+            timestamp,
             headers,
         )
+    }
+
+    /** Copies standard AMQP message properties onto [headers], prefixed with 'amqp.'. */
+    private fun addAmqpHeaders(
+        headers: ConnectHeaders,
+        msg: com.rabbitmq.stream.Message,
+    ) {
+        val props = msg.properties ?: return
+        props.messageId?.let { headers.addString("amqp.messageId", it.toString()) }
+        props.correlationId?.let { headers.addString("amqp.correlationId", it.toString()) }
+        props.contentType?.let { headers.addString("amqp.contentType", it) }
+        props.contentEncoding?.let { headers.addString("amqp.contentEncoding", it) }
+        props.to?.let { headers.addString("amqp.to", it) }
+        props.subject?.let { headers.addString("amqp.subject", it) }
+        props.replyTo?.let { headers.addString("amqp.replyTo", it) }
+        props.groupId?.let { headers.addString("amqp.groupId", it) }
+        props.creationTime.takeIf { it > 0 }?.let { headers.addLong("amqp.creationTime", it) }
     }
 
     /** Resolves the Kafka record key from the configured message property, or null if unset/absent. */
@@ -263,7 +290,8 @@ class RabbitSourceTask : SourceTask() {
         val truststorePath = config.getString("rabbitmq.tls.truststore.path")
         if (truststorePath.isNotEmpty()) {
             val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
-            val truststore = KeyStore.getInstance("JKS")
+            val truststoreType = config.getString("rabbitmq.tls.truststore.type").trim().uppercase()
+            val truststore = KeyStore.getInstance(truststoreType)
             FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
             val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
             tmf.init(truststore)
@@ -273,7 +301,8 @@ class RabbitSourceTask : SourceTask() {
         val keystorePath = config.getString("rabbitmq.tls.keystore.path")
         if (keystorePath.isNotEmpty()) {
             val keystorePassword = config.getPassword("rabbitmq.tls.keystore.password").value().toCharArray()
-            val keystore = KeyStore.getInstance("JKS")
+            val keystoreType = config.getString("rabbitmq.tls.keystore.type").trim().uppercase()
+            val keystore = KeyStore.getInstance(keystoreType)
             FileInputStream(keystorePath).use { keystore.load(it, keystorePassword) }
             val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
             kmf.init(keystore, keystorePassword)
