@@ -44,7 +44,7 @@ dependencies {
     // Only depend on the slf4j API; the Connect runtime supplies the logging backend.
     implementation("org.slf4j:slf4j-api:2.0.18")
 
-    implementation("com.rabbitmq:stream-client:1.9.0")
+    implementation("com.rabbitmq:stream-client:1.10.0")
 
     // The Connect APIs are compileOnly for the plugin, so tests must bring them in
     // explicitly (at runtime) to exercise the connector code.
