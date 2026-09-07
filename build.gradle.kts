@@ -42,7 +42,7 @@ dependencies {
     compileOnly("org.apache.kafka:kafka-clients:4.3.1")
 
     // Only depend on the slf4j API; the Connect runtime supplies the logging backend.
-    implementation("org.slf4j:slf4j-api:2.0.18")
+    implementation("org.slf4j:slf4j-api:2.0.19")
 
     implementation("com.rabbitmq:stream-client:1.11.0")
 
