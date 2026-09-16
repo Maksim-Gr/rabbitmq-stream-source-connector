@@ -25,6 +25,8 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.TrustManagerFactory
 
 class RabbitSourceTask : SourceTask() {
+    private enum class MessageFormat { STRING, BYTES }
+
     companion object {
         @JvmStatic
         val logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)!!
@@ -45,10 +47,10 @@ class RabbitSourceTask : SourceTask() {
     private var bufferSize = DEFAULT_BUFFER_SIZE
     private var pollMaxBatchSize = DEFAULT_POLL_MAX_BATCH_SIZE
     private lateinit var topic: String
-    private var messageFormat = "string"
+    private var messageFormat = MessageFormat.STRING
     private var headersEnabled = false
     private var amqpHeadersEnabled = false
-    private var messageKeySource = ""
+    private var messageKeySource: String? = null
     private val running = AtomicBoolean(false)
 
     @Volatile
@@ -66,10 +68,14 @@ class RabbitSourceTask : SourceTask() {
             pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size")
             messageQueue = LinkedBlockingQueue(bufferSize)
             topic = config.getString("kafka.topic")
-            messageFormat = config.getString("rabbitmq.message.format").lowercase()
+            messageFormat =
+                when (config.getString("rabbitmq.message.format").trim().lowercase()) {
+                    "bytes" -> MessageFormat.BYTES
+                    else -> MessageFormat.STRING
+                }
             headersEnabled = config.getBoolean("rabbitmq.headers.enabled")
             amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled")
-            messageKeySource = config.getString("rabbitmq.message.key").trim()
+            messageKeySource = config.getString("rabbitmq.message.key").trim().ifEmpty { null }
             val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
             val envBuilder =
                 Environment
@@ -225,7 +231,7 @@ class RabbitSourceTask : SourceTask() {
         val keySchema = if (key != null) Schema.STRING_SCHEMA else null
 
         val (valueSchema, value) =
-            if (messageFormat == "bytes") {
+            if (messageFormat == MessageFormat.BYTES) {
                 Schema.BYTES_SCHEMA to msg.bodyAsBinary
             } else {
                 Schema.STRING_SCHEMA to String(msg.bodyAsBinary, StandardCharsets.UTF_8)
@@ -276,11 +282,11 @@ class RabbitSourceTask : SourceTask() {
 
     /** Resolves the Kafka record key from the configured message property, or null if unset/absent. */
     private fun resolveKey(msg: com.rabbitmq.stream.Message): String? {
-        if (messageKeySource.isEmpty()) return null
-        return when (messageKeySource) {
+        val source = messageKeySource ?: return null
+        return when (source) {
             "messageId" -> msg.properties?.messageId?.toString()
             "correlationId" -> msg.properties?.correlationId?.toString()
-            else -> msg.applicationProperties?.get(messageKeySource)?.toString()
+            else -> msg.applicationProperties?.get(source)?.toString()
         }
     }
 
