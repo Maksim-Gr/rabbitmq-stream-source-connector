@@ -19,6 +19,7 @@ class RabbitSourceTaskTest {
     fun setUp() {
         task = RabbitSourceTask()
         task.initialize(mock(SourceTaskContext::class.java))
+        setSettings(task)
     }
 
     @Test
@@ -57,7 +58,7 @@ class RabbitSourceTaskTest {
 
     @Test
     fun `poll returns at most pollMaxBatchSize records`() {
-        setPollMaxBatchSize(task, 3)
+        setSettings(task, pollMaxBatchSize = 3)
         val queue = getMessageQueue(task)
         repeat(10) { i ->
             queue.put(
@@ -126,12 +127,17 @@ class RabbitSourceTaskTest {
         return field.get(task) as java.util.concurrent.LinkedBlockingQueue<SourceRecord>
     }
 
-    private fun setPollMaxBatchSize(
+    private fun setSettings(
         task: RabbitSourceTask,
-        value: Int,
+        pollMaxBatchSize: Int = 1000,
     ) {
-        val field: Field = RabbitSourceTask::class.java.getDeclaredField("pollMaxBatchSize")
+        val settingsClass = Class.forName("com.github.maksimgr.RabbitSourceTask\$TaskSettings")
+        val constructor = settingsClass.declaredConstructors.first()
+        constructor.isAccessible = true
+        // bufferSize, pollMaxBatchSize, topic, messageFormat, headersEnabled, amqpHeadersEnabled, messageKeySource
+        val settings = constructor.newInstance(10_000, pollMaxBatchSize, "test-topic", "string", false, false, "")
+        val field: Field = RabbitSourceTask::class.java.getDeclaredField("settings")
         field.isAccessible = true
-        field.setInt(task, value)
+        field.set(task, settings)
     }
 }
