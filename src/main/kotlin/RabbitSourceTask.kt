@@ -1,9 +1,13 @@
 package com.github.maksimgr
 
 import com.rabbitmq.stream.BackOffDelayPolicy
+import com.rabbitmq.stream.Consumer
 import com.rabbitmq.stream.Environment
+import com.rabbitmq.stream.Message
+import com.rabbitmq.stream.MessageHandler
 import com.rabbitmq.stream.OffsetSpecification
 import com.rabbitmq.stream.Resource
+import io.netty.handler.ssl.SslContext
 import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.errors.ConnectException
@@ -38,7 +42,7 @@ class RabbitSourceTask : SourceTask() {
 
     private lateinit var config: RabbitSourceConfig
     private lateinit var environment: Environment
-    private val consumers = CopyOnWriteArrayList<com.rabbitmq.stream.Consumer>()
+    private val consumers = CopyOnWriteArrayList<Consumer>()
 
     @Volatile
     private var messageQueue = LinkedBlockingQueue<SourceRecord>(DEFAULT_BUFFER_SIZE)
@@ -184,7 +188,7 @@ class RabbitSourceTask : SourceTask() {
     private fun buildMessageHandler(
         queueName: String,
         partition: Map<String, String>,
-    ) = com.rabbitmq.stream.MessageHandler { ctx, msg ->
+    ) = MessageHandler { ctx, msg ->
         try {
             val offset = ctx.offset()
             logger.debug("Received message at offset $offset")
@@ -218,7 +222,7 @@ class RabbitSourceTask : SourceTask() {
     private fun buildRecord(
         partition: Map<String, String>,
         offset: Long,
-        msg: com.rabbitmq.stream.Message,
+        msg: Message,
     ): SourceRecord {
         val sourceOffset = mapOf("offset" to offset)
         val key = resolveKey(msg)
@@ -260,7 +264,7 @@ class RabbitSourceTask : SourceTask() {
     /** Copies standard AMQP message properties onto [headers], prefixed with 'amqp.'. */
     private fun addAmqpHeaders(
         headers: ConnectHeaders,
-        msg: com.rabbitmq.stream.Message,
+        msg: Message,
     ) {
         val props = msg.properties ?: return
         props.messageId?.let { headers.addString("amqp.messageId", it.toString()) }
@@ -275,7 +279,7 @@ class RabbitSourceTask : SourceTask() {
     }
 
     /** Resolves the Kafka record key from the configured message property, or null if unset/absent. */
-    private fun resolveKey(msg: com.rabbitmq.stream.Message): String? {
+    private fun resolveKey(msg: Message): String? {
         if (messageKeySource.isEmpty()) return null
         return when (messageKeySource) {
             "messageId" -> msg.properties?.messageId?.toString()
@@ -284,7 +288,7 @@ class RabbitSourceTask : SourceTask() {
         }
     }
 
-    private fun buildSslContext(): io.netty.handler.ssl.SslContext {
+    private fun buildSslContext(): SslContext {
         val builder = SslContextBuilder.forClient()
 
         val truststorePath = config.getString("rabbitmq.tls.truststore.path")
