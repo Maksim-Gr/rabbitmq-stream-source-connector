@@ -34,6 +34,9 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Detekt
+        run: ./gradlew detekt --no-daemon --console=plain
+
       - name: Run Unit Tests
         run: ./gradlew test jacocoTestReport --no-daemon --console=plain
 

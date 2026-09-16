@@ -2,6 +2,7 @@ package com.github.maksimgr
 
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,7 +33,7 @@ class RabbitSourceConnectorTest {
         connector = RabbitSourceConnector()
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     @DisplayName("Connector should return a version read from version.properties")
     fun testVersion() {
         val version = connector.version()
@@ -41,7 +42,7 @@ class RabbitSourceConnectorTest {
         assertNotEquals("unknown", version, "Version should be resolved, not the fallback")
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun testConfig() {
         val configDef = connector.config()
         assertNotNull(configDef, "ConfigDef should not be null")
@@ -49,31 +50,31 @@ class RabbitSourceConnectorTest {
         assertDoesNotThrow { connector.start(config.toMutableMap()) }
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun testStart() {
         val props = config.toMutableMap()
         assertDoesNotThrow { connector.start(props) }
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun testTaskClass() {
         val taskClass = connector.taskClass()
         assertEquals(RabbitSourceTask::class.java, taskClass)
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun testTaskConfig() {
         connector.start(config.toMutableMap())
         val taskConfigs = connector.taskConfigs(2)
         assertEquals(1, taskConfigs.size)
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun testStop() {
         assertDoesNotThrow { connector.stop() }
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun `taskConfigs should create correct number of tasks`() {
         connector.start(config.toMutableMap())
         val taskConfigs = connector.taskConfigs(3)
@@ -83,7 +84,7 @@ class RabbitSourceConnectorTest {
         assertEquals("test_queue", taskConfigs[0]["rabbitmq.queue"])
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     fun `taskConfigs should distribute multiple queues`() {
         val multiConfig = config.toMutableMap()
         multiConfig["rabbitmq.queue"] = "test_queue,test_queue_2,test_queue_3"

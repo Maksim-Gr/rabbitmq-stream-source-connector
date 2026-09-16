@@ -1,15 +1,20 @@
 package com.github.maksimgr
 
 import com.rabbitmq.stream.BackOffDelayPolicy
+import com.rabbitmq.stream.Consumer
 import com.rabbitmq.stream.Environment
+import com.rabbitmq.stream.Message
+import com.rabbitmq.stream.MessageHandler
 import com.rabbitmq.stream.OffsetSpecification
 import com.rabbitmq.stream.Resource
+import io.netty.handler.ssl.SslContext
 import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.errors.ConnectException
 import org.apache.kafka.connect.header.ConnectHeaders
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTask
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
@@ -25,12 +30,23 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.TrustManagerFactory
 
 class RabbitSourceTask : SourceTask() {
+    private enum class MessageFormat { STRING, BYTES }
+
+    private data class TaskSettings(
+        val bufferSize: Int,
+        val pollMaxBatchSize: Int,
+        val topic: String,
+        val messageFormat: MessageFormat,
+        val headersEnabled: Boolean,
+        val amqpHeadersEnabled: Boolean,
+        val messageKeySource: String?,
+    )
+
     companion object {
         @JvmStatic
-        val logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)!!
+        val logger: Logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)
 
         private const val DEFAULT_BUFFER_SIZE = 10_000
-        private const val DEFAULT_POLL_MAX_BATCH_SIZE = 1000
         private const val QUEUE_MONITOR_INITIAL_DELAY_SECONDS = 30L
         private const val QUEUE_MONITOR_PERIOD_SECONDS = 30L
         private const val POLL_TIMEOUT_MILLIS = 100L
@@ -38,17 +54,11 @@ class RabbitSourceTask : SourceTask() {
 
     private lateinit var config: RabbitSourceConfig
     private lateinit var environment: Environment
-    private val consumers = CopyOnWriteArrayList<com.rabbitmq.stream.Consumer>()
+    private lateinit var settings: TaskSettings
+    private val consumers = CopyOnWriteArrayList<Consumer>()
 
     @Volatile
     private var messageQueue = LinkedBlockingQueue<SourceRecord>(DEFAULT_BUFFER_SIZE)
-    private var bufferSize = DEFAULT_BUFFER_SIZE
-    private var pollMaxBatchSize = DEFAULT_POLL_MAX_BATCH_SIZE
-    private lateinit var topic: String
-    private var messageFormat = "string"
-    private var headersEnabled = false
-    private var amqpHeadersEnabled = false
-    private var messageKeySource = ""
     private val running = AtomicBoolean(false)
 
     @Volatile
@@ -62,14 +72,21 @@ class RabbitSourceTask : SourceTask() {
         try {
             failure = null
             config = RabbitSourceConfig(props)
-            bufferSize = config.getInt("rabbitmq.queue.buffer.size")
-            pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size")
-            messageQueue = LinkedBlockingQueue(bufferSize)
-            topic = config.getString("kafka.topic")
-            messageFormat = config.getString("rabbitmq.message.format").lowercase()
-            headersEnabled = config.getBoolean("rabbitmq.headers.enabled")
-            amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled")
-            messageKeySource = config.getString("rabbitmq.message.key").trim()
+            settings =
+                TaskSettings(
+                    bufferSize = config.getInt("rabbitmq.queue.buffer.size"),
+                    pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size"),
+                    topic = config.getString("kafka.topic"),
+                    messageFormat =
+                        when (config.getString("rabbitmq.message.format").trim().lowercase()) {
+                            "bytes" -> MessageFormat.BYTES
+                            else -> MessageFormat.STRING
+                        },
+                    headersEnabled = config.getBoolean("rabbitmq.headers.enabled"),
+                    amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled"),
+                    messageKeySource = config.getString("rabbitmq.message.key").trim().ifEmpty { null },
+                )
+            messageQueue = LinkedBlockingQueue(settings.bufferSize)
             val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
             val envBuilder =
                 Environment
@@ -93,7 +110,7 @@ class RabbitSourceTask : SourceTask() {
             initializeConnection()
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
-                { logger.info("Internal message queue depth: ${messageQueue.size} / $bufferSize") },
+                { logger.info("Internal message queue depth: ${messageQueue.size} / ${settings.bufferSize}") },
                 QUEUE_MONITOR_INITIAL_DELAY_SECONDS,
                 QUEUE_MONITOR_PERIOD_SECONDS,
                 TimeUnit.SECONDS,
@@ -141,7 +158,7 @@ class RabbitSourceTask : SourceTask() {
         val first = messageQueue.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) ?: return records
         records.add(first)
         // Cap the batch so a single poll cannot return an unbounded number of records.
-        messageQueue.drainTo(records, pollMaxBatchSize - 1)
+        messageQueue.drainTo(records, settings.pollMaxBatchSize - 1)
         return records
     }
 
@@ -184,7 +201,7 @@ class RabbitSourceTask : SourceTask() {
     private fun buildMessageHandler(
         queueName: String,
         partition: Map<String, String>,
-    ) = com.rabbitmq.stream.MessageHandler { ctx, msg ->
+    ) = MessageHandler { ctx, msg ->
         try {
             val offset = ctx.offset()
             logger.debug("Received message at offset $offset")
@@ -218,26 +235,26 @@ class RabbitSourceTask : SourceTask() {
     private fun buildRecord(
         partition: Map<String, String>,
         offset: Long,
-        msg: com.rabbitmq.stream.Message,
+        msg: Message,
     ): SourceRecord {
         val sourceOffset = mapOf("offset" to offset)
         val key = resolveKey(msg)
         val keySchema = if (key != null) Schema.STRING_SCHEMA else null
 
         val (valueSchema, value) =
-            if (messageFormat == "bytes") {
+            if (settings.messageFormat == MessageFormat.BYTES) {
                 Schema.BYTES_SCHEMA to msg.bodyAsBinary
             } else {
                 Schema.STRING_SCHEMA to String(msg.bodyAsBinary, StandardCharsets.UTF_8)
             }
 
         val headers = ConnectHeaders()
-        if (headersEnabled) {
+        if (settings.headersEnabled) {
             msg.applicationProperties?.forEach { (name, propValue) ->
                 if (propValue != null) headers.addString(name, propValue.toString())
             }
         }
-        if (amqpHeadersEnabled) {
+        if (settings.amqpHeadersEnabled) {
             addAmqpHeaders(headers, msg)
         }
 
@@ -246,7 +263,7 @@ class RabbitSourceTask : SourceTask() {
         return SourceRecord(
             partition,
             sourceOffset,
-            topic,
+            settings.topic,
             null,
             keySchema,
             key,
@@ -260,7 +277,7 @@ class RabbitSourceTask : SourceTask() {
     /** Copies standard AMQP message properties onto [headers], prefixed with 'amqp.'. */
     private fun addAmqpHeaders(
         headers: ConnectHeaders,
-        msg: com.rabbitmq.stream.Message,
+        msg: Message,
     ) {
         val props = msg.properties ?: return
         props.messageId?.let { headers.addString("amqp.messageId", it.toString()) }
@@ -275,16 +292,16 @@ class RabbitSourceTask : SourceTask() {
     }
 
     /** Resolves the Kafka record key from the configured message property, or null if unset/absent. */
-    private fun resolveKey(msg: com.rabbitmq.stream.Message): String? {
-        if (messageKeySource.isEmpty()) return null
-        return when (messageKeySource) {
+    private fun resolveKey(msg: Message): String? {
+        val source = settings.messageKeySource ?: return null
+        return when (source) {
             "messageId" -> msg.properties?.messageId?.toString()
             "correlationId" -> msg.properties?.correlationId?.toString()
-            else -> msg.applicationProperties?.get(messageKeySource)?.toString()
+            else -> msg.applicationProperties?.get(source)?.toString()
         }
     }
 
-    private fun buildSslContext(): io.netty.handler.ssl.SslContext {
+    private fun buildSslContext(): SslContext {
         val builder = SslContextBuilder.forClient()
 
         val truststorePath = config.getString("rabbitmq.tls.truststore.path")
