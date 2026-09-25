@@ -108,7 +108,7 @@ class RabbitSourceTask : SourceTask() {
                     headersEnabled = config.getBoolean("rabbitmq.headers.enabled"),
                     amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled"),
                     messageKeySource = config.getString("rabbitmq.message.key").trim().ifEmpty { null },
-                    skipFailedMessages = config.getString("rabbitmq.error.tolerance").trim().lowercase() == "all",
+                    skipFailedMessages = config.getString("rabbitmq.error.handling").trim().lowercase() == "skip",
                 )
             messageQueue = LinkedBlockingQueue(settings.bufferSize)
             val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
@@ -253,7 +253,7 @@ class RabbitSourceTask : SourceTask() {
                 logger.warn("Message handler interrupted for queue '$queueName'")
             } catch (e: Exception) {
                 if (settings.skipFailedMessages) {
-                    logger.error("Skipping message from queue '$queueName' at offset $offset (rabbitmq.error.tolerance=all)", e)
+                    logger.error("Skipping message from queue '$queueName' at offset $offset (rabbitmq.error.handling=skip)", e)
                 } else {
                     logger.error("Error processing message from queue '$queueName' at offset $offset", e)
                     failure = e

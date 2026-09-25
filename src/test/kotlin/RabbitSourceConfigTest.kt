@@ -85,16 +85,16 @@ class RabbitSourceConfigTest {
     }
 
     @Test
-    @DisplayName("Error tolerance accepts none/all, rejects anything else")
-    fun testErrorToleranceValidation() {
-        listOf("none", "all", "ALL").forEach { tolerance ->
+    @DisplayName("Error handling accepts fail/skip, rejects anything else")
+    fun testErrorHandlingValidation() {
+        listOf("fail", "skip", "SKIP").forEach { handling ->
             assertDoesNotThrow(
-                { RabbitSourceConfig(validProps(mapOf("rabbitmq.error.tolerance" to tolerance))) },
-                "Expected '$tolerance' to be valid",
+                { RabbitSourceConfig(validProps(mapOf("rabbitmq.error.handling" to handling))) },
+                "Expected '$handling' to be valid",
             )
         }
         assertThrows(ConfigException::class.java) {
-            RabbitSourceConfig(validProps(mapOf("rabbitmq.error.tolerance" to "skip")))
+            RabbitSourceConfig(validProps(mapOf("rabbitmq.error.handling" to "all")))
         }
     }
 
@@ -127,7 +127,7 @@ class RabbitSourceConfigTest {
         assertEquals(10000, config.getInt("rabbitmq.queue.buffer.size"))
         assertEquals(5, config.getInt("rabbitmq.recovery.backoff.seconds"))
         assertEquals(1000, config.getInt("rabbitmq.poll.max.batch.size"))
-        assertEquals("none", config.getString("rabbitmq.error.tolerance"))
+        assertEquals("fail", config.getString("rabbitmq.error.handling"))
     }
 
     @Test

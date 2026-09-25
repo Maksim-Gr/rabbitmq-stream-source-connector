@@ -121,7 +121,7 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.queue.buffer.size                 | `10000` | Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka |
 | rabbitmq.recovery.backoff.seconds          | `5`     | Fixed back-off in seconds between connection recovery attempts |
 | rabbitmq.poll.max.batch.size               | `1000`  | Maximum number of records returned from a single `poll()` call |
-| rabbitmq.error.tolerance                   | `none`  | What to do when a message cannot be converted into a Kafka record: `none` fails the task, `all` logs the error (stream and offset) and skips the message |
+| rabbitmq.error.handling                    | `fail`  | Action when a message cannot be converted into a Kafka record: `fail` stops the task with an error, `skip` logs the error (stream and offset), drops the message and continues. See [Error handling](#error-handling) |
 
 
 ### Connector config
@@ -199,11 +199,11 @@ Kafka Connect's `errors.tolerance` only covers converters and SMTs, not the conn
 ([docs](https://kafka.apache.org/documentation/#connect_errorreporting)), so the connector has its
 own setting for messages it cannot turn into records:
 
-- `rabbitmq.error.tolerance=none` (default): the task fails and shows `FAILED` in
+- `rabbitmq.error.handling=fail` (default): the task stops with an error and shows `FAILED` in
   `/connectors/<name>/status`. After a restart it resumes at the same message, so fix or remove
   the cause first.
-- `rabbitmq.error.tolerance=all`: the error is logged at ERROR with the stream and offset, the
-  message is skipped, and consumption continues.
+- `rabbitmq.error.handling=skip`: the error is logged at ERROR with the stream and offset, the
+  message is dropped (it is never written to Kafka), and consumption continues with the next one.
 
 Message bodies that are not AMQP binary data (e.g. an AMQP 1.0 `amqp-value` string sent by an
 AMQP 1.0 client) are converted to their string form rather than treated as errors. A message

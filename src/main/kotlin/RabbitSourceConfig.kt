@@ -32,7 +32,7 @@ class RabbitSourceConfig(
         private const val RABBITMQ_QUEUE_BUFFER_SIZE = "rabbitmq.queue.buffer.size"
         private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
-        private const val RABBITMQ_ERROR_TOLERANCE = "rabbitmq.error.tolerance"
+        private const val RABBITMQ_ERROR_HANDLING = "rabbitmq.error.handling"
 
         private val MESSAGE_FORMAT_VALIDATOR =
             ConfigDef.Validator { name, value ->
@@ -41,10 +41,10 @@ class RabbitSourceConfig(
                 }
             }
 
-        private val ERROR_TOLERANCE_VALIDATOR =
+        private val ERROR_HANDLING_VALIDATOR =
             ConfigDef.Validator { name, value ->
-                if (value is String && value.trim().lowercase() !in setOf("none", "all")) {
-                    throw ConfigException(name, value, "Must be 'none' or 'all'")
+                if (value is String && value.trim().lowercase() !in setOf("fail", "skip")) {
+                    throw ConfigException(name, value, "Must be 'fail' or 'skip'")
                 }
             }
 
@@ -331,17 +331,20 @@ class RabbitSourceConfig(
                     ConfigDef.Width.SHORT,
                     "Poll Max Batch Size",
                 ).define(
-                    RABBITMQ_ERROR_TOLERANCE,
+                    RABBITMQ_ERROR_HANDLING,
                     ConfigDef.Type.STRING,
-                    "none",
-                    ERROR_TOLERANCE_VALIDATOR,
+                    "fail",
+                    ERROR_HANDLING_VALIDATOR,
                     ConfigDef.Importance.MEDIUM,
-                    "What to do when a RabbitMQ message cannot be converted into a Kafka record: 'none' fails the " +
-                        "task, 'all' logs the error with the stream and offset, skips the message and continues.",
+                    "Action taken when a RabbitMQ message cannot be converted into a Kafka record. " +
+                        "'fail' (default): stop the task with an error; it stays FAILED and, after a restart, " +
+                        "fails again on the same message until the cause is fixed. " +
+                        "'skip': log the error with the stream name and offset, drop the message (it is not " +
+                        "written to Kafka) and continue with the next one.",
                     "Message",
                     -1,
                     ConfigDef.Width.SHORT,
-                    "Error Tolerance",
+                    "Error Handling",
                 )
     }
 }

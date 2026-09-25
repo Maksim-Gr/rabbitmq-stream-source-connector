@@ -146,7 +146,7 @@ class RabbitSourceTaskTest {
     }
 
     @Test
-    fun `failing message fails the task when error tolerance is none`() {
+    fun `failing message fails the task when error handling is fail`() {
         setRunning(task, true)
         handler().handle(context(7), poisonMessage())
 
@@ -154,7 +154,7 @@ class RabbitSourceTaskTest {
     }
 
     @Test
-    fun `failing message is skipped when error tolerance is all`() {
+    fun `failing message is skipped when error handling is skip`() {
         setSettings(task, skipFailedMessages = true)
         setRunning(task, true)
         val handler = handler()
