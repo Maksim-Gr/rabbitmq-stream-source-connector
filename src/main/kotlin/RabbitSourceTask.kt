@@ -26,6 +26,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.TrustManagerFactory
 
@@ -40,6 +41,7 @@ class RabbitSourceTask : SourceTask() {
         val headersEnabled: Boolean,
         val amqpHeadersEnabled: Boolean,
         val messageKeySource: String?,
+        val skipFailedMessages: Boolean,
     )
 
     companion object {
@@ -50,6 +52,25 @@ class RabbitSourceTask : SourceTask() {
         private const val QUEUE_MONITOR_INITIAL_DELAY_SECONDS = 30L
         private const val QUEUE_MONITOR_PERIOD_SECONDS = 30L
         private const val POLL_TIMEOUT_MILLIS = 100L
+        private const val ENQUEUE_TIMEOUT_MILLIS = 100L
+        private const val NO_EXPECTED_OFFSET = -1L
+
+        /**
+         * Returns the message body as bytes. Bodies that are not AMQP binary data (e.g. an AMQP 1.0
+         * `amqp-value` string published by a non-stream client) make [Message.getBodyAsBinary] throw,
+         * so fall back to the native body: byte arrays as-is, anything else as its UTF-8 string form.
+         */
+        @Suppress("SwallowedException") // the exception only signals "not binary"; the native body is used instead
+        private fun Message.bodyBytes(): ByteArray? =
+            try {
+                bodyAsBinary
+            } catch (e: IllegalStateException) {
+                when (val native = body) {
+                    null -> null
+                    is ByteArray -> native
+                    else -> native.toString().toByteArray(StandardCharsets.UTF_8)
+                }
+            }
     }
 
     private lateinit var config: RabbitSourceConfig
@@ -59,6 +80,8 @@ class RabbitSourceTask : SourceTask() {
 
     @Volatile
     private var messageQueue = LinkedBlockingQueue<SourceRecord>(DEFAULT_BUFFER_SIZE)
+
+    // Set before consumers are built: they dispatch immediately and the message handler only enqueues while running.
     private val running = AtomicBoolean(false)
 
     @Volatile
@@ -85,6 +108,7 @@ class RabbitSourceTask : SourceTask() {
                     headersEnabled = config.getBoolean("rabbitmq.headers.enabled"),
                     amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled"),
                     messageKeySource = config.getString("rabbitmq.message.key").trim().ifEmpty { null },
+                    skipFailedMessages = config.getString("rabbitmq.error.tolerance").trim().lowercase() == "all",
                 )
             messageQueue = LinkedBlockingQueue(settings.bufferSize)
             val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
@@ -107,6 +131,7 @@ class RabbitSourceTask : SourceTask() {
             }
 
             environment = envBuilder.build()
+            running.set(true)
             initializeConnection()
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
@@ -115,16 +140,10 @@ class RabbitSourceTask : SourceTask() {
                 QUEUE_MONITOR_PERIOD_SECONDS,
                 TimeUnit.SECONDS,
             )
-            running.set(true)
             logger.info("RabbitSourceTask started")
         } catch (e: Exception) {
-            if (::environment.isInitialized) {
-                try {
-                    environment.close()
-                } catch (ce: Exception) {
-                    logger.warn("Error closing environment after failed start", ce)
-                }
-            }
+            // Release whatever was created before the failure (consumers, environment, monitor).
+            stop()
             throw ConnectException("Failed to start RabbitSourceTask", e)
         }
     }
@@ -175,6 +194,7 @@ class RabbitSourceTask : SourceTask() {
             // no committed offset exists do we fall back to the configured start offset.
             val partition = mapOf("queue" to queueName)
             val committedOffset = RabbitOffsetResolver.committedOffset(context.offsetStorageReader().offset(partition))
+            val expectedOffset = committedOffset?.plus(1) ?: NO_EXPECTED_OFFSET
             val offsetSpec =
                 if (committedOffset != null) {
                     logger.info("Resuming queue '$queueName' from committed offset ${committedOffset + 1}")
@@ -190,7 +210,7 @@ class RabbitSourceTask : SourceTask() {
                     .name("kafka-connector-$queueName")
                     .noTrackingStrategy()
                     .offset(offsetSpec)
-                    .messageHandler(buildMessageHandler(queueName, partition))
+                    .messageHandler(buildMessageHandler(queueName, partition, expectedOffset))
                     .listeners(buildStateListener(queueName))
                     .build()
             consumers.add(consumer)
@@ -198,20 +218,47 @@ class RabbitSourceTask : SourceTask() {
         logger.info("Started consuming RabbitMQ streams: $queueNames (configured offset: $offsetStr)")
     }
 
+    /**
+     * [initialExpectedOffset] is the offset the task asked to resume from, or [NO_EXPECTED_OFFSET]
+     * when starting from the configured `rabbitmq.offset`. Stream offsets are contiguous, so a jump
+     * past the expected offset means messages were removed (typically by retention) before they
+     * reached Kafka.
+     */
     private fun buildMessageHandler(
         queueName: String,
         partition: Map<String, String>,
-    ) = MessageHandler { ctx, msg ->
-        try {
+        initialExpectedOffset: Long,
+    ): MessageHandler {
+        val expectedOffset = AtomicLong(initialExpectedOffset)
+        return MessageHandler { ctx, msg ->
             val offset = ctx.offset()
-            logger.debug("Received message at offset $offset")
-            messageQueue.put(buildRecord(partition, offset, msg))
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            logger.warn("Message handler interrupted for queue '$queueName'")
-        } catch (e: Exception) {
-            logger.error("Error processing message from queue '$queueName' at offset ${ctx.offset()}", e)
-            failure = e
+            try {
+                logger.debug("Received message at offset $offset")
+                val expected = expectedOffset.getAndSet(offset + 1)
+                if (expected != NO_EXPECTED_OFFSET && offset > expected) {
+                    logger.warn(
+                        "Gap in stream '$queueName': expected offset $expected but received $offset. " +
+                            "${offset - expected} message(s) are no longer in the stream (likely removed by retention) " +
+                            "and were not delivered to Kafka.",
+                    )
+                }
+                val record = buildRecord(partition, offset, msg)
+                // Bounded wait instead of put(): a full buffer must not block stop(). A record dropped
+                // here was never handed to Kafka, so its offset is not committed and it is re-read on restart.
+                while (running.get() && !messageQueue.offer(record, ENQUEUE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                    // buffer full: keep applying backpressure until space frees up or the task stops
+                }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                logger.warn("Message handler interrupted for queue '$queueName'")
+            } catch (e: Exception) {
+                if (settings.skipFailedMessages) {
+                    logger.error("Skipping message from queue '$queueName' at offset $offset (rabbitmq.error.tolerance=all)", e)
+                } else {
+                    logger.error("Error processing message from queue '$queueName' at offset $offset", e)
+                    failure = e
+                }
+            }
         }
     }
 
@@ -226,7 +273,11 @@ class RabbitSourceTask : SourceTask() {
                     }
                 Resource.State.CLOSED ->
                     if (running.get()) {
-                        logger.error("Consumer for '$queueName' closed unexpectedly (previous state: ${ctx.previousState()})")
+                        val message = "Consumer for '$queueName' closed unexpectedly (previous state: ${ctx.previousState()})"
+                        logger.error(message)
+                        // Fail the task on the next poll() so Connect reports FAILED instead of a RUNNING
+                        // task that no longer receives messages.
+                        failure = ConnectException(message)
                     }
                 else -> {}
             }
@@ -241,11 +292,13 @@ class RabbitSourceTask : SourceTask() {
         val key = resolveKey(msg)
         val keySchema = if (key != null) Schema.STRING_SCHEMA else null
 
+        val body = msg.bodyBytes()
         val (valueSchema, value) =
-            if (settings.messageFormat == MessageFormat.BYTES) {
-                Schema.BYTES_SCHEMA to msg.bodyAsBinary
-            } else {
-                Schema.STRING_SCHEMA to String(msg.bodyAsBinary, StandardCharsets.UTF_8)
+            when {
+                body == null && settings.messageFormat == MessageFormat.BYTES -> Schema.OPTIONAL_BYTES_SCHEMA to null
+                body == null -> Schema.OPTIONAL_STRING_SCHEMA to null
+                settings.messageFormat == MessageFormat.BYTES -> Schema.BYTES_SCHEMA to body
+                else -> Schema.STRING_SCHEMA to String(body, StandardCharsets.UTF_8)
             }
 
         val headers = ConnectHeaders()

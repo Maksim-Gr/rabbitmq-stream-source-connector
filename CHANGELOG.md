@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prefixed with `amqp.`.
 - PKCS12 keystore/truststore support via `rabbitmq.tls.truststore.type` / `rabbitmq.tls.keystore.type` (default `JKS`).
 - JaCoCo test coverage reporting and detekt static analysis, wired into the build and CI.
+- `rabbitmq.error.tolerance` config (`none`/`all`, default `none`): with `all`, messages that cannot be converted
+  into a Kafka record are logged with their stream and offset and skipped instead of failing the task.
+- A WARN is logged when stream offsets jump past the expected offset (for example after retention removed messages
+  the connector had not yet delivered), naming the stream and the number of missing messages.
+
+### Fixed
+- The task now fails when a RabbitMQ consumer closes unexpectedly, instead of staying `RUNNING` without consuming.
+- Message bodies that are not AMQP binary data (e.g. AMQP 1.0 `amqp-value`) are converted to their string form
+  instead of failing the task; messages without a body produce a `null` value.
+- Stopping the task no longer hangs when the internal buffer is full and the consumer thread is blocked on it.
+- A task that fails during `start()` now also closes any consumers it had already created.
 
 ## [0.3.0] - 2026-06-25
 

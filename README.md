@@ -121,6 +121,7 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.queue.buffer.size                 | `10000` | Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka |
 | rabbitmq.recovery.backoff.seconds          | `5`     | Fixed back-off in seconds between connection recovery attempts |
 | rabbitmq.poll.max.batch.size               | `1000`  | Maximum number of records returned from a single `poll()` call |
+| rabbitmq.error.tolerance                   | `none`  | What to do when a message cannot be converted into a Kafka record: `none` fails the task, `all` logs the error (stream and offset) and skips the message |
 
 
 ### Connector config
@@ -184,6 +185,30 @@ connector provides **at-least-once** delivery — after a crash or rebalance, re
 that were buffered but not yet committed to Kafka may be redelivered (duplicates).
 Make downstream consumers idempotent if exactly-once is required.
 
+If the offset to resume from has already been removed from the stream (for example by
+[retention](https://www.rabbitmq.com/docs/streams#retention) while the connector was down),
+RabbitMQ starts from the oldest message still available. The skipped messages are lost, and the
+connector logs a WARN naming the stream and the missing offset range:
+```
+Gap in stream 'orders': expected offset 1200 but received 1500. 300 message(s) are no longer in the stream ...
+```
+Size stream retention to cover the longest connector downtime you expect.
+
+### Error handling
+Kafka Connect's `errors.tolerance` only covers converters and SMTs, not the connector's own code
+([docs](https://kafka.apache.org/documentation/#connect_errorreporting)), so the connector has its
+own setting for messages it cannot turn into records:
+
+- `rabbitmq.error.tolerance=none` (default): the task fails and shows `FAILED` in
+  `/connectors/<name>/status`. After a restart it resumes at the same message, so fix or remove
+  the cause first.
+- `rabbitmq.error.tolerance=all`: the error is logged at ERROR with the stream and offset, the
+  message is skipped, and consumption continues.
+
+Message bodies that are not AMQP binary data (e.g. an AMQP 1.0 `amqp-value` string sent by an
+AMQP 1.0 client) are converted to their string form rather than treated as errors. A message
+with no body produces a record with a `null` value.
+
 ### Record timestamp
 If the AMQP message carries a `creation-time` property, it is used as the Kafka record
 timestamp (`ConsumerRecord.timestamp()` downstream). Messages without a `creation-time`
@@ -194,7 +219,8 @@ before this was added.
 The connector uses an internal buffer (default 10,000 records, see
 `rabbitmq.queue.buffer.size`) between the RabbitMQ consumer thread and Kafka. When the
 buffer is full the consumer thread blocks until space is available — messages are never
-dropped. The current buffer depth is logged every 30 seconds at INFO level:
+dropped. Stopping the task releases a blocked consumer thread within about 100 ms, so shutdown
+and rebalances are not held up by a full buffer. The current buffer depth is logged every 30 seconds at INFO level:
 ```
 Internal message queue depth: 1234 / 10000
 ```
@@ -206,4 +232,8 @@ The connector enables automatic reconnection via the RabbitMQ Streams client's b
 |-------|-----------|
 | Consumer starts recovering after a failure | WARN |
 | Consumer recovered successfully | INFO |
-| Consumer closed unexpectedly while task is running | ERROR |
+| Consumer closed unexpectedly while task is running | ERROR, and the task fails |
+
+If a consumer closes for good (for example the stream was deleted, or recovery gave up), the task
+fails on its next `poll()` instead of staying `RUNNING` without consuming anything. Monitor the
+task status or enable restarts on your platform so this is noticed.

@@ -32,11 +32,19 @@ class RabbitSourceConfig(
         private const val RABBITMQ_QUEUE_BUFFER_SIZE = "rabbitmq.queue.buffer.size"
         private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
+        private const val RABBITMQ_ERROR_TOLERANCE = "rabbitmq.error.tolerance"
 
         private val MESSAGE_FORMAT_VALIDATOR =
             ConfigDef.Validator { name, value ->
                 if (value is String && value.trim().lowercase() !in setOf("string", "bytes")) {
                     throw ConfigException(name, value, "Must be 'string' or 'bytes'")
+                }
+            }
+
+        private val ERROR_TOLERANCE_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is String && value.trim().lowercase() !in setOf("none", "all")) {
+                    throw ConfigException(name, value, "Must be 'none' or 'all'")
                 }
             }
 
@@ -322,6 +330,18 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "Poll Max Batch Size",
+                ).define(
+                    RABBITMQ_ERROR_TOLERANCE,
+                    ConfigDef.Type.STRING,
+                    "none",
+                    ERROR_TOLERANCE_VALIDATOR,
+                    ConfigDef.Importance.MEDIUM,
+                    "What to do when a RabbitMQ message cannot be converted into a Kafka record: 'none' fails the " +
+                        "task, 'all' logs the error with the stream and offset, skips the message and continues.",
+                    "Message",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Error Tolerance",
                 )
     }
 }
