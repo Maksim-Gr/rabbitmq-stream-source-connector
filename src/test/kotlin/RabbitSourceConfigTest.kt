@@ -85,6 +85,20 @@ class RabbitSourceConfigTest {
     }
 
     @Test
+    @DisplayName("Error handling accepts fail/skip, rejects anything else")
+    fun testErrorHandlingValidation() {
+        listOf("fail", "skip", "SKIP").forEach { handling ->
+            assertDoesNotThrow(
+                { RabbitSourceConfig(validProps(mapOf("rabbitmq.error.handling" to handling))) },
+                "Expected '$handling' to be valid",
+            )
+        }
+        assertThrows(ConfigException::class.java) {
+            RabbitSourceConfig(validProps(mapOf("rabbitmq.error.handling" to "all")))
+        }
+    }
+
+    @Test
     @DisplayName("Buffer size, recovery backoff and poll batch size must be at least 1")
     fun testAtLeastOneRanges() {
         listOf("rabbitmq.queue.buffer.size", "rabbitmq.recovery.backoff.seconds", "rabbitmq.poll.max.batch.size").forEach { name ->
@@ -113,6 +127,7 @@ class RabbitSourceConfigTest {
         assertEquals(10000, config.getInt("rabbitmq.queue.buffer.size"))
         assertEquals(5, config.getInt("rabbitmq.recovery.backoff.seconds"))
         assertEquals(1000, config.getInt("rabbitmq.poll.max.batch.size"))
+        assertEquals("fail", config.getString("rabbitmq.error.handling"))
     }
 
     @Test

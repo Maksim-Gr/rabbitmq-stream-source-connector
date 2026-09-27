@@ -32,11 +32,19 @@ class RabbitSourceConfig(
         private const val RABBITMQ_QUEUE_BUFFER_SIZE = "rabbitmq.queue.buffer.size"
         private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
+        private const val RABBITMQ_ERROR_HANDLING = "rabbitmq.error.handling"
 
         private val MESSAGE_FORMAT_VALIDATOR =
             ConfigDef.Validator { name, value ->
                 if (value is String && value.trim().lowercase() !in setOf("string", "bytes")) {
                     throw ConfigException(name, value, "Must be 'string' or 'bytes'")
+                }
+            }
+
+        private val ERROR_HANDLING_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is String && value.trim().lowercase() !in setOf("fail", "skip")) {
+                    throw ConfigException(name, value, "Must be 'fail' or 'skip'")
                 }
             }
 
@@ -322,6 +330,21 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "Poll Max Batch Size",
+                ).define(
+                    RABBITMQ_ERROR_HANDLING,
+                    ConfigDef.Type.STRING,
+                    "fail",
+                    ERROR_HANDLING_VALIDATOR,
+                    ConfigDef.Importance.MEDIUM,
+                    "Action taken when a RabbitMQ message cannot be converted into a Kafka record. " +
+                        "'fail' (default): stop the task with an error; it stays FAILED and, after a restart, " +
+                        "fails again on the same message until the cause is fixed. " +
+                        "'skip': log the error with the stream name and offset, drop the message (it is not " +
+                        "written to Kafka) and continue with the next one.",
+                    "Message",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Error Handling",
                 )
     }
 }
