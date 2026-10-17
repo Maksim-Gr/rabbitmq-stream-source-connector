@@ -18,8 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into a Kafka record are logged with their stream and offset and dropped instead of failing the task.
 - A WARN is logged when stream offsets jump past the expected offset (for example after retention removed messages
   the connector had not yet delivered), naming the stream and the number of missing messages.
+- A WARN is logged when stream offsets jump back behind the expected offset, naming the stream and the number of
+  messages that will be redelivered.
 
 ### Fixed
+- Tasks no longer resume from a stale offset stored on the broker. Consumers were still named
+  `kafka-connector-<stream>`, and the RabbitMQ stream client looks up an offset stored under a consumer's name on
+  every subscription and reconnection, even with tracking disabled. It then uses that offset instead of the one
+  committed to Kafka. Versions <= 0.2.0 stored offsets under that name, so after an upgrade every restart,
+  rebalance or reconnection replayed everything consumed since then. Consumers are now unnamed.
+- With `rabbitmq.error.handling=fail`, no record after the failing message reaches Kafka any more. Previously a
+  later record could be committed, so the restart skipped the failed message.
+- An interrupted message handler now fails the task instead of silently dropping the message it was handling.
+- Binary (`byte[]`) application properties are copied as byte headers instead of identity strings like `[B@1b6d3586`.
 - The task now fails when a RabbitMQ consumer closes unexpectedly, instead of staying `RUNNING` without consuming.
 - Message bodies that are not AMQP binary data (e.g. AMQP 1.0 `amqp-value`) are converted to their string form
   instead of failing the task; messages without a body produce a `null` value.

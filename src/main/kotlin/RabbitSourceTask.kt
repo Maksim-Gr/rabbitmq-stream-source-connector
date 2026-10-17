@@ -204,10 +204,12 @@ class RabbitSourceTask : SourceTask() {
                     configOffsetSpec
                 }
 
+            // No consumer name: the stream client queries the broker for an offset stored under the name on every
+            // (re)subscription and lets it override offsetSpec, even with noTrackingStrategy(). Versions <= 0.2.0
+            // stored offsets as "kafka-connector-<stream>", so a name would resume from that stale position.
             val consumer =
                 environment.consumerBuilder()
                     .stream(queueName)
-                    .name("kafka-connector-$queueName")
                     .noTrackingStrategy()
                     .offset(offsetSpec)
                     .messageHandler(buildMessageHandler(queueName, partition, expectedOffset))
@@ -222,7 +224,7 @@ class RabbitSourceTask : SourceTask() {
      * [initialExpectedOffset] is the offset the task asked to resume from, or [NO_EXPECTED_OFFSET]
      * when starting from the configured `rabbitmq.offset`. Stream offsets are contiguous, so a jump
      * past the expected offset means messages were removed (typically by retention) before they
-     * reached Kafka.
+     * reached Kafka, and a jump back means messages are being redelivered.
      */
     private fun buildMessageHandler(
         queueName: String,
@@ -231,15 +233,23 @@ class RabbitSourceTask : SourceTask() {
     ): MessageHandler {
         val expectedOffset = AtomicLong(initialExpectedOffset)
         return MessageHandler { ctx, msg ->
+            // Once the task has failed, enqueue nothing more: a later record reaching Kafka would commit an
+            // offset past the failed message, and the restart would skip it.
+            if (failure != null) return@MessageHandler
             val offset = ctx.offset()
             try {
-                logger.debug("Received message at offset $offset")
+                logger.debug("Received message at offset {}", offset)
                 val expected = expectedOffset.getAndSet(offset + 1)
                 if (expected != NO_EXPECTED_OFFSET && offset > expected) {
                     logger.warn(
                         "Gap in stream '$queueName': expected offset $expected but received $offset. " +
                             "${offset - expected} message(s) are no longer in the stream (likely removed by retention) " +
                             "and were not delivered to Kafka.",
+                    )
+                } else if (expected != NO_EXPECTED_OFFSET && offset < expected) {
+                    logger.warn(
+                        "Stream '$queueName' rewound: expected offset $expected but received $offset. " +
+                            "${expected - offset} message(s) will be delivered to Kafka again.",
                     )
                 }
                 val record = buildRecord(partition, offset, msg)
@@ -250,7 +260,14 @@ class RabbitSourceTask : SourceTask() {
                 }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
-                logger.warn("Message handler interrupted for queue '$queueName'")
+                if (running.get()) {
+                    // The record was not enqueued but the consumer has moved past it: fail rather than lose it.
+                    val message = "Message handler interrupted for queue '$queueName' at offset $offset"
+                    logger.error(message)
+                    failure = ConnectException(message, e)
+                } else {
+                    logger.warn("Message handler interrupted for queue '$queueName'")
+                }
             } catch (e: Exception) {
                 if (settings.skipFailedMessages) {
                     logger.error("Skipping message from queue '$queueName' at offset $offset (rabbitmq.error.handling=skip)", e)
@@ -304,7 +321,12 @@ class RabbitSourceTask : SourceTask() {
         val headers = ConnectHeaders()
         if (settings.headersEnabled) {
             msg.applicationProperties?.forEach { (name, propValue) ->
-                if (propValue != null) headers.addString(name, propValue.toString())
+                when (propValue) {
+                    null -> {}
+                    // toString() on a ByteArray yields an identity string like "[B@1b6d3586", not the content.
+                    is ByteArray -> headers.addBytes(name, propValue)
+                    else -> headers.addString(name, propValue.toString())
+                }
             }
         }
         if (settings.amqpHeadersEnabled) {
