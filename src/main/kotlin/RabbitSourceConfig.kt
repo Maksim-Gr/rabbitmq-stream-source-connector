@@ -30,6 +30,8 @@ class RabbitSourceConfig(
         private const val RABBITMQ_HEADERS_AMQP_ENABLED = "rabbitmq.headers.amqp.enabled"
         private const val RABBITMQ_MESSAGE_KEY = "rabbitmq.message.key"
         private const val RABBITMQ_QUEUE_BUFFER_SIZE = "rabbitmq.queue.buffer.size"
+        private const val RABBITMQ_QUEUE_BUFFER_MAX_BYTES = "rabbitmq.queue.buffer.max.bytes"
+        private const val DEFAULT_QUEUE_BUFFER_MAX_BYTES = 64L * 1024 * 1024
         private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
         private const val RABBITMQ_ERROR_HANDLING = "rabbitmq.error.handling"
@@ -302,12 +304,27 @@ class RabbitSourceConfig(
                     10000,
                     ConfigDef.Range.atLeast(1),
                     ConfigDef.Importance.MEDIUM,
-                    "Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka. " +
-                        "The consumer thread blocks (backpressure) when full.",
+                    "Maximum number of records held in the in-memory buffer between the RabbitMQ consumer thread " +
+                        "and Kafka. The buffer is full when either this or '$RABBITMQ_QUEUE_BUFFER_MAX_BYTES' is " +
+                        "reached, and the consumer thread then blocks (backpressure).",
                     "Advanced Settings",
                     -1,
                     ConfigDef.Width.SHORT,
                     "Internal Buffer Size",
+                ).define(
+                    RABBITMQ_QUEUE_BUFFER_MAX_BYTES,
+                    ConfigDef.Type.LONG,
+                    DEFAULT_QUEUE_BUFFER_MAX_BYTES,
+                    ConfigDef.Range.atLeast(1),
+                    ConfigDef.Importance.MEDIUM,
+                    "Maximum total size in bytes of message bodies held in the in-memory buffer. The buffer is " +
+                        "full when either this or '$RABBITMQ_QUEUE_BUFFER_SIZE' is reached, and the consumer thread " +
+                        "then blocks (backpressure). Not an absolute maximum: a message larger than this is still " +
+                        "accepted when the buffer is empty, so consumption always makes progress.",
+                    "Advanced Settings",
+                    -1,
+                    ConfigDef.Width.SHORT,
+                    "Internal Buffer Max Bytes",
                 ).define(
                     RABBITMQ_RECOVERY_BACKOFF_SECONDS,
                     ConfigDef.Type.INT,

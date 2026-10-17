@@ -22,7 +22,6 @@ import java.security.KeyStore
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -35,6 +34,7 @@ class RabbitSourceTask : SourceTask() {
 
     private data class TaskSettings(
         val bufferSize: Int,
+        val bufferMaxBytes: Long,
         val pollMaxBatchSize: Int,
         val topic: String,
         val messageFormat: MessageFormat,
@@ -49,6 +49,7 @@ class RabbitSourceTask : SourceTask() {
         val logger: Logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)
 
         private const val DEFAULT_BUFFER_SIZE = 10_000
+        private const val DEFAULT_BUFFER_MAX_BYTES = 64L * 1024 * 1024
         private const val QUEUE_MONITOR_INITIAL_DELAY_SECONDS = 30L
         private const val QUEUE_MONITOR_PERIOD_SECONDS = 30L
         private const val POLL_TIMEOUT_MILLIS = 100L
@@ -79,7 +80,7 @@ class RabbitSourceTask : SourceTask() {
     private val consumers = CopyOnWriteArrayList<Consumer>()
 
     @Volatile
-    private var messageQueue = LinkedBlockingQueue<SourceRecord>(DEFAULT_BUFFER_SIZE)
+    private var messageQueue = RecordBuffer(DEFAULT_BUFFER_SIZE, DEFAULT_BUFFER_MAX_BYTES)
 
     // Set before consumers are built: they dispatch immediately and the message handler only enqueues while running.
     private val running = AtomicBoolean(false)
@@ -98,6 +99,7 @@ class RabbitSourceTask : SourceTask() {
             settings =
                 TaskSettings(
                     bufferSize = config.getInt("rabbitmq.queue.buffer.size"),
+                    bufferMaxBytes = config.getLong("rabbitmq.queue.buffer.max.bytes"),
                     pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size"),
                     topic = config.getString("kafka.topic"),
                     messageFormat =
@@ -110,7 +112,7 @@ class RabbitSourceTask : SourceTask() {
                     messageKeySource = config.getString("rabbitmq.message.key").trim().ifEmpty { null },
                     skipFailedMessages = config.getString("rabbitmq.error.handling").trim().lowercase() == "skip",
                 )
-            messageQueue = LinkedBlockingQueue(settings.bufferSize)
+            messageQueue = RecordBuffer(settings.bufferSize, settings.bufferMaxBytes)
             val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
             val envBuilder =
                 Environment
@@ -135,7 +137,7 @@ class RabbitSourceTask : SourceTask() {
             initializeConnection()
             queueMonitor = Executors.newSingleThreadScheduledExecutor()
             queueMonitor.scheduleAtFixedRate(
-                { logger.info("Internal message queue depth: ${messageQueue.size} / ${settings.bufferSize}") },
+                { logger.info("Internal message queue depth: {}", messageQueue) },
                 QUEUE_MONITOR_INITIAL_DELAY_SECONDS,
                 QUEUE_MONITOR_PERIOD_SECONDS,
                 TimeUnit.SECONDS,
@@ -249,10 +251,14 @@ class RabbitSourceTask : SourceTask() {
                             "${expected - offset} message(s) will be delivered to Kafka again.",
                     )
                 }
-                val record = buildRecord(partition, offset, msg)
+                val body = msg.bodyBytes()
+                val record = buildRecord(partition, offset, msg, body)
+                val sizeBytes = body?.size?.toLong() ?: 0L
                 // Bounded wait instead of put(): a full buffer must not block stop(). A record dropped
                 // here was never handed to Kafka, so its offset is not committed and it is re-read on restart.
-                while (running.get() && !messageQueue.offer(record, ENQUEUE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                while (running.get() &&
+                    !messageQueue.offer(record, sizeBytes, ENQUEUE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+                ) {
                     // buffer full: keep applying backpressure until space frees up or the task stops
                 }
             } catch (e: InterruptedException) {
@@ -300,12 +306,12 @@ class RabbitSourceTask : SourceTask() {
         partition: Map<String, String>,
         offset: Long,
         msg: Message,
+        body: ByteArray?,
     ): SourceRecord {
         val sourceOffset = mapOf("offset" to offset)
         val key = resolveKey(msg)
         val keySchema = if (key != null) Schema.STRING_SCHEMA else null
 
-        val body = msg.bodyBytes()
         val (valueSchema, value) =
             when {
                 body == null && settings.messageFormat == MessageFormat.BYTES -> Schema.OPTIONAL_BYTES_SCHEMA to null

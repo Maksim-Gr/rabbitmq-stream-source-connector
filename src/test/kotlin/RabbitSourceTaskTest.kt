@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 import java.lang.reflect.Field
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class RabbitSourceTaskTest {
@@ -59,7 +59,7 @@ class RabbitSourceTaskTest {
                 Schema.STRING_SCHEMA,
                 "hello",
             )
-        queue.put(record)
+        queue.add(record)
 
         val records = task.poll()
         assertFalse(records.isEmpty(), "Expected non-empty list after enqueuing a record")
@@ -71,7 +71,7 @@ class RabbitSourceTaskTest {
         setSettings(task, pollMaxBatchSize = 3)
         val queue = getMessageQueue(task)
         repeat(10) { i ->
-            queue.put(
+            queue.add(
                 SourceRecord(
                     mapOf("queue" to "test"),
                     mapOf("offset" to i.toLong()),
@@ -93,7 +93,7 @@ class RabbitSourceTaskTest {
     fun `poll drains all enqueued records`() {
         val queue = getMessageQueue(task)
         repeat(5) { i ->
-            queue.put(
+            queue.add(
                 SourceRecord(
                     mapOf("queue" to "test"),
                     mapOf("offset" to i.toLong()),
@@ -238,7 +238,7 @@ class RabbitSourceTaskTest {
     @Test
     fun `stop does not hang when the handler is blocked on a full buffer`() {
         setSettings(task, bufferSize = 1)
-        setMessageQueue(task, LinkedBlockingQueue(1))
+        setMessageQueue(task, RecordBuffer(1, Long.MAX_VALUE))
         setRunning(task, true)
         val handler = handler()
         handler.handle(context(0), message(binary = "fills-buffer".toByteArray()))
@@ -256,6 +256,29 @@ class RabbitSourceTaskTest {
         task.stop()
         blocked.join(2_000)
         assertTrue(finished.get(), "handler should return once the task is stopped")
+    }
+
+    @Test
+    fun `handler applies backpressure when the buffer byte limit is reached`() {
+        setMessageQueue(task, RecordBuffer(maxRecords = 100, maxBytes = 10))
+        setRunning(task, true)
+        val handler = handler()
+        handler.handle(context(0), message(binary = "12345678".toByteArray()))
+
+        val finished = AtomicBoolean(false)
+        val blocked =
+            Thread {
+                handler.handle(context(1), message(binary = "abcd".toByteArray()))
+                finished.set(true)
+            }.apply { start() }
+
+        blocked.join(300)
+        assertFalse(finished.get(), "8 + 4 bytes exceeds the 10-byte limit, so the handler should wait")
+
+        assertEquals(listOf("12345678"), task.poll().map { it.value() })
+        blocked.join(2_000)
+        assertTrue(finished.get(), "handler should resume once poll() frees space")
+        assertEquals(listOf("abcd"), task.poll().map { it.value() })
     }
 
     @Test
@@ -336,7 +359,7 @@ class RabbitSourceTaskTest {
 
     private fun setMessageQueue(
         task: RabbitSourceTask,
-        queue: LinkedBlockingQueue<SourceRecord>,
+        queue: RecordBuffer,
     ) {
         val field: Field = RabbitSourceTask::class.java.getDeclaredField("messageQueue")
         field.isAccessible = true
@@ -352,11 +375,14 @@ class RabbitSourceTaskTest {
         field.set(task, value)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun getMessageQueue(task: RabbitSourceTask): java.util.concurrent.LinkedBlockingQueue<SourceRecord> {
+    private fun getMessageQueue(task: RabbitSourceTask): RecordBuffer {
         val field: Field = RabbitSourceTask::class.java.getDeclaredField("messageQueue")
         field.isAccessible = true
-        return field.get(task) as java.util.concurrent.LinkedBlockingQueue<SourceRecord>
+        return field.get(task) as RecordBuffer
+    }
+
+    private fun RecordBuffer.add(record: SourceRecord) {
+        assertTrue(offer(record, 0, 0, TimeUnit.MILLISECONDS), "test buffer should have room")
     }
 
     private fun setSettings(
@@ -374,11 +400,13 @@ class RabbitSourceTaskTest {
         val settingsClass = Class.forName("com.github.maksimgr.RabbitSourceTask\$TaskSettings")
         val constructor = settingsClass.declaredConstructors.first()
         constructor.isAccessible = true
-        // bufferSize, pollMaxBatchSize, topic, messageFormat, headersEnabled, amqpHeadersEnabled, messageKeySource,
-        // skipFailedMessages
+        // bufferSize, bufferMaxBytes, pollMaxBatchSize, topic, messageFormat, headersEnabled, amqpHeadersEnabled,
+        // messageKeySource, skipFailedMessages
         val settings =
             constructor.newInstance(
                 bufferSize,
+                // bufferMaxBytes only feeds the depth log; tests set limits through setMessageQueue()
+                Long.MAX_VALUE,
                 pollMaxBatchSize,
                 "test-topic",
                 stringFormat,

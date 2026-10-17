@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into a Kafka record are logged with their stream and offset and dropped instead of failing the task.
 - A WARN is logged when stream offsets jump past the expected offset (for example after retention removed messages
   the connector had not yet delivered), naming the stream and the number of missing messages.
+- `rabbitmq.queue.buffer.max.bytes` config (default 64 MiB) caps the total message-body size held in the internal
+  buffer, alongside the record cap `rabbitmq.queue.buffer.size`; the buffer is full when either is reached. As with
+  Kafka's `fetch.max.bytes`, a single larger message is still accepted when the buffer is empty. The periodic
+  buffer-depth log line now includes bytes.
 - A WARN is logged when stream offsets jump back behind the expected offset, naming the stream and the number of
   messages that will be redelivered.
 
