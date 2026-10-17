@@ -275,10 +275,13 @@ class RabbitSourceTaskTest {
         blocked.join(300)
         assertFalse(finished.get(), "8 + 4 bytes exceeds the 10-byte limit, so the handler should wait")
 
-        assertEquals(listOf("12345678"), task.poll().map { it.value() })
+        // poll() frees space as soon as it takes the first record, so the unblocked handler may enqueue "abcd" in time
+        // for the same poll's drainTo(); collect across polls instead of assuming how the records are batched.
+        val records = task.poll().toMutableList()
         blocked.join(2_000)
         assertTrue(finished.get(), "handler should resume once poll() frees space")
-        assertEquals(listOf("abcd"), task.poll().map { it.value() })
+        records += task.poll()
+        assertEquals(listOf("12345678", "abcd"), records.map { it.value() })
     }
 
     @Test
