@@ -1,6 +1,7 @@
 package com.github.maksimgr
 
 import com.rabbitmq.stream.Environment
+import com.rabbitmq.stream.OffsetSpecification
 import com.rabbitmq.stream.Producer
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTaskContext
@@ -127,6 +128,67 @@ class RabbitSourceConnectorIntegrationTest {
             secondRun.map { it.value() as String },
             "Restarted task must resume after the committed offset: no replay, no gap",
         )
+    }
+
+    @Test
+    fun `should ignore an offset stored on the broker by a pre-0_3_0 connector`() {
+        val streamName = "stale_offset_queue"
+        createStream(streamName)
+        (1..10).forEach { sendMessageToRabbitMQ(streamName, "message-$it") }
+        storeOffsetOnBroker(streamName, "kafka-connector-$streamName", offset = 4)
+
+        val freshTask = startResumeTask(streamName, committedOffset = null)
+        val fromConfigured = pollUntil(freshTask, 10)
+        freshTask.stop()
+        assertEquals(
+            (1..10).map { "message-$it" },
+            fromConfigured.map { it.value() as String },
+            "With no committed offset the task must start from rabbitmq.offset, not the broker-stored offset",
+        )
+
+        val resumedTask = startResumeTask(streamName, committedOffset = 7L)
+        val fromCommitted = pollUntil(resumedTask, 2)
+        resumedTask.stop()
+        assertEquals(
+            listOf("message-9", "message-10"),
+            fromCommitted.map { it.value() as String },
+            "The task must resume after the Kafka-committed offset, not the broker-stored offset",
+        )
+    }
+
+    private fun storeOffsetOnBroker(
+        streamName: String,
+        consumerName: String,
+        offset: Long,
+    ) {
+        val environment =
+            Environment
+                .builder()
+                .host(host)
+                .port(port)
+                .username("guest")
+                .password("guest")
+                .build()
+
+        val consumer =
+            environment
+                .consumerBuilder()
+                .stream(streamName)
+                .name(consumerName)
+                .offset(OffsetSpecification.first())
+                .manualTrackingStrategy()
+                .builder()
+                .messageHandler { ctx, _ -> if (ctx.offset() == offset) ctx.storeOffset() }
+                .build()
+
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline && runCatching { consumer.storedOffset() }.getOrNull() != offset) {
+            Thread.sleep(100)
+        }
+        assertEquals(offset, consumer.storedOffset(), "offset should be stored on the broker before the test runs")
+
+        consumer.close()
+        environment.close()
     }
 
     private fun startResumeTask(

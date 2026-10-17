@@ -7,6 +7,7 @@ import org.apache.kafka.connect.data.Schema
 import org.apache.kafka.connect.errors.ConnectException
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTaskContext
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -166,6 +167,66 @@ class RabbitSourceTaskTest {
     }
 
     @Test
+    fun `no message after a failing one is enqueued when error handling is fail`() {
+        setRunning(task, true)
+        val handler = handler()
+        handler.handle(context(7), poisonMessage())
+        handler.handle(context(8), message(binary = "after-failure".toByteArray()))
+
+        assertTrue(getMessageQueue(task).isEmpty(), "a record past the failed offset must not reach Kafka")
+        assertThrows(ConnectException::class.java) { task.poll() }
+    }
+
+    @Test
+    fun `interrupting the handler while running fails the task`() {
+        setRunning(task, true)
+        Thread.currentThread().interrupt()
+        try {
+            handler().handle(context(3), message(binary = "interrupted".toByteArray()))
+        } finally {
+            Thread.interrupted()
+        }
+
+        val error = assertThrows(ConnectException::class.java) { task.poll() }
+        assertTrue(error.cause?.message.orEmpty().contains("at offset 3"))
+    }
+
+    @Test
+    fun `interrupting the handler during stop does not fail the task`() {
+        setRunning(task, false)
+        Thread.currentThread().interrupt()
+        try {
+            handler().handle(context(3), message(binary = "interrupted".toByteArray()))
+        } finally {
+            Thread.interrupted()
+        }
+
+        assertTrue(task.poll().isEmpty())
+    }
+
+    @Test
+    fun `message handler keeps delivering after an offset rewind`() {
+        setRunning(task, true)
+        val handler = handler(expectedOffset = 10)
+        handler.handle(context(4), message(binary = "redelivered".toByteArray()))
+
+        assertEquals("redelivered", task.poll().single().value())
+    }
+
+    @Test
+    fun `binary application properties are copied as byte headers`() {
+        setSettings(task, headersEnabled = true)
+        setRunning(task, true)
+        val msg = message(binary = "body".toByteArray())
+        `when`(msg.applicationProperties).thenReturn(mapOf("raw" to byteArrayOf(1, 2), "text" to "value"))
+        handler().handle(context(0), msg)
+
+        val headers = task.poll().single().headers()
+        assertArrayEquals(byteArrayOf(1, 2), headers.lastWithName("raw").value() as ByteArray)
+        assertEquals("value", headers.lastWithName("text").value())
+    }
+
+    @Test
     fun `message handler keeps delivering after an offset gap`() {
         setRunning(task, true)
         val handler = handler(expectedOffset = 10)
@@ -303,6 +364,7 @@ class RabbitSourceTaskTest {
         pollMaxBatchSize: Int = 1000,
         bufferSize: Int = 10_000,
         skipFailedMessages: Boolean = false,
+        headersEnabled: Boolean = false,
     ) {
         val messageFormatClass = Class.forName("com.github.maksimgr.RabbitSourceTask\$MessageFormat")
 
@@ -315,7 +377,16 @@ class RabbitSourceTaskTest {
         // bufferSize, pollMaxBatchSize, topic, messageFormat, headersEnabled, amqpHeadersEnabled, messageKeySource,
         // skipFailedMessages
         val settings =
-            constructor.newInstance(bufferSize, pollMaxBatchSize, "test-topic", stringFormat, false, false, null, skipFailedMessages)
+            constructor.newInstance(
+                bufferSize,
+                pollMaxBatchSize,
+                "test-topic",
+                stringFormat,
+                headersEnabled,
+                false,
+                null,
+                skipFailedMessages,
+            )
         val field: Field = RabbitSourceTask::class.java.getDeclaredField("settings")
         field.isAccessible = true
         field.set(task, settings)

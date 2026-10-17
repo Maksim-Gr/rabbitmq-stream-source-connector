@@ -194,6 +194,19 @@ Gap in stream 'orders': expected offset 1200 but received 1500. 300 message(s) a
 ```
 Size stream retention to cover the longest connector downtime you expect.
 
+If the stream instead delivers an offset earlier than the expected one, the connector logs a WARN and
+the messages in between are written to Kafka again:
+```
+Stream 'orders' rewound: expected offset 1500 but received 1200. 300 message(s) will be delivered to Kafka again.
+```
+
+> **Upgrading from 0.3.0 or earlier:** older versions named their RabbitMQ consumers
+> `kafka-connector-<stream>`, and versions up to 0.2.0 stored offsets on the broker under that name.
+> The stream client resumes from such a stored offset in preference to the one committed to Kafka,
+> so every restart or reconnection replayed messages consumed since the upgrade. Consumers are now
+> unnamed and only Kafka Connect's offset store decides where a task resumes. Offsets left on the broker
+> are no longer read and can be ignored.
+
 ### Error handling
 Kafka Connect's `errors.tolerance` only covers converters and SMTs, not the connector's own code
 ([docs](https://kafka.apache.org/documentation/#connect_errorreporting)), so the connector has its
