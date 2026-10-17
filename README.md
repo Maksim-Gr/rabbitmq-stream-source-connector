@@ -118,7 +118,8 @@ Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory whe
 | rabbitmq.headers.enabled                   | `false` | When `true`, RabbitMQ application properties are copied to Kafka record headers |
 | rabbitmq.headers.amqp.enabled              | `false` | When `true`, standard AMQP properties (`messageId`, `correlationId`, `contentType`, `contentEncoding`, `to`, `subject`, `replyTo`, `groupId`, `creationTime`) are copied to Kafka record headers prefixed with `amqp.` |
 | rabbitmq.message.key                       | `""`    | Source for the Kafka record key: `messageId`, `correlationId`, or an application property name. Empty means no key |
-| rabbitmq.queue.buffer.size                 | `10000` | Capacity of the in-memory buffer between the RabbitMQ consumer thread and Kafka |
+| rabbitmq.queue.buffer.size                 | `10000` | Maximum number of records in the in-memory buffer between the RabbitMQ consumer thread and Kafka. See [Backpressure](#backpressure) |
+| rabbitmq.queue.buffer.max.bytes            | `67108864` (64 MiB) | Maximum total size of message bodies in that buffer. The buffer is full when either limit is reached. See [Backpressure](#backpressure) |
 | rabbitmq.recovery.backoff.seconds          | `5`     | Fixed back-off in seconds between connection recovery attempts |
 | rabbitmq.poll.max.batch.size               | `1000`  | Maximum number of records returned from a single `poll()` call |
 | rabbitmq.error.handling                    | `fail`  | Action when a message cannot be converted into a Kafka record: `fail` stops the task with an error, `skip` logs the error (stream and offset), drops the message and continues. See [Error handling](#error-handling) |
@@ -229,13 +230,23 @@ get no explicit timestamp, so Kafka assigns one on write (broker append time), s
 before this was added.
 
 ### Backpressure
-The connector uses an internal buffer (default 10,000 records, see
-`rabbitmq.queue.buffer.size`) between the RabbitMQ consumer thread and Kafka. When the
-buffer is full the consumer thread blocks until space is available — messages are never
-dropped. Stopping the task releases a blocked consumer thread within about 100 ms, so shutdown
+The connector uses an internal buffer between the RabbitMQ consumer thread and Kafka. It has two
+limits, and it is full as soon as **either** is reached:
+
+- `rabbitmq.queue.buffer.size`: maximum number of records (default 10,000).
+- `rabbitmq.queue.buffer.max.bytes`: maximum total size of message bodies (default 64 MiB).
+
+When the buffer is full the consumer thread blocks until space is available — messages are never
+dropped. Like Kafka's [`fetch.max.bytes`](https://kafka.apache.org/documentation/#consumerconfigs_fetch.max.bytes),
+the byte limit is not absolute: a single message larger than it is still accepted when the buffer is
+empty, so consumption never stalls. Sizes are measured on the message body. Keys, headers and JVM object
+overhead come on top, and `string` format can take up to twice the body size in memory for non-Latin-1
+text, so leave headroom when sizing the worker heap (budget per task, times the number of tasks per worker).
+
+Stopping the task releases a blocked consumer thread within about 100 ms, so shutdown
 and rebalances are not held up by a full buffer. The current buffer depth is logged every 30 seconds at INFO level:
 ```
-Internal message queue depth: 1234 / 10000
+Internal message queue depth: 1234 / 10000 records, 5242880 / 67108864 bytes
 ```
 
 ### Connection recovery

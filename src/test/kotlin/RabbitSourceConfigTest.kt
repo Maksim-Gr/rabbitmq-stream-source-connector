@@ -99,9 +99,14 @@ class RabbitSourceConfigTest {
     }
 
     @Test
-    @DisplayName("Buffer size, recovery backoff and poll batch size must be at least 1")
+    @DisplayName("Buffer limits, recovery backoff and poll batch size must be at least 1")
     fun testAtLeastOneRanges() {
-        listOf("rabbitmq.queue.buffer.size", "rabbitmq.recovery.backoff.seconds", "rabbitmq.poll.max.batch.size").forEach { name ->
+        listOf(
+            "rabbitmq.queue.buffer.size",
+            "rabbitmq.queue.buffer.max.bytes",
+            "rabbitmq.recovery.backoff.seconds",
+            "rabbitmq.poll.max.batch.size",
+        ).forEach { name ->
             assertThrows(
                 ConfigException::class.java,
                 { RabbitSourceConfig(validProps(mapOf(name to "0"))) },
@@ -125,6 +130,7 @@ class RabbitSourceConfigTest {
         assertEquals("JKS", config.getString("rabbitmq.tls.truststore.type"))
         assertEquals("JKS", config.getString("rabbitmq.tls.keystore.type"))
         assertEquals(10000, config.getInt("rabbitmq.queue.buffer.size"))
+        assertEquals(64L * 1024 * 1024, config.getLong("rabbitmq.queue.buffer.max.bytes"))
         assertEquals(5, config.getInt("rabbitmq.recovery.backoff.seconds"))
         assertEquals(1000, config.getInt("rabbitmq.poll.max.batch.size"))
         assertEquals("fail", config.getString("rabbitmq.error.handling"))
