@@ -135,7 +135,6 @@ class RabbitSourceConnectorIntegrationTest {
         val streamName = "stale_offset_queue"
         createStream(streamName)
         (1..10).forEach { sendMessageToRabbitMQ(streamName, "message-$it") }
-        // Connector versions <= 0.2.0 tracked offsets server-side under this consumer name.
         storeOffsetOnBroker(streamName, "kafka-connector-$streamName", offset = 4)
 
         val freshTask = startResumeTask(streamName, committedOffset = null)

@@ -204,9 +204,7 @@ class RabbitSourceTask : SourceTask() {
                     configOffsetSpec
                 }
 
-            // No consumer name: the stream client queries the broker for an offset stored under the name on every
-            // (re)subscription and lets it override offsetSpec, even with noTrackingStrategy(). Versions <= 0.2.0
-            // stored offsets as "kafka-connector-<stream>", so a name would resume from that stale position.
+            // Keep unnamed: for a named consumer the client resumes from a broker-stored offset, even with noTrackingStrategy().
             val consumer =
                 environment.consumerBuilder()
                     .stream(queueName)
@@ -233,8 +231,7 @@ class RabbitSourceTask : SourceTask() {
     ): MessageHandler {
         val expectedOffset = AtomicLong(initialExpectedOffset)
         return MessageHandler { ctx, msg ->
-            // Once the task has failed, enqueue nothing more: a later record reaching Kafka would commit an
-            // offset past the failed message, and the restart would skip it.
+            // A later record reaching Kafka would commit an offset past the failed message.
             if (failure != null) return@MessageHandler
             val offset = ctx.offset()
             try {
@@ -261,7 +258,6 @@ class RabbitSourceTask : SourceTask() {
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 if (running.get()) {
-                    // The record was not enqueued but the consumer has moved past it: fail rather than lose it.
                     val message = "Message handler interrupted for queue '$queueName' at offset $offset"
                     logger.error(message)
                     failure = ConnectException(message, e)
@@ -323,7 +319,6 @@ class RabbitSourceTask : SourceTask() {
             msg.applicationProperties?.forEach { (name, propValue) ->
                 when (propValue) {
                     null -> {}
-                    // toString() on a ByteArray yields an identity string like "[B@1b6d3586", not the content.
                     is ByteArray -> headers.addBytes(name, propValue)
                     else -> headers.addString(name, propValue.toString())
                 }
