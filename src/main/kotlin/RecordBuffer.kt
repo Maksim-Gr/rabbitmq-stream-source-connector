@@ -7,10 +7,8 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * Blocking FIFO buffer bounded by both record count and total size in bytes, whichever is reached first.
- *
- * Like Kafka's `fetch.max.bytes`, the byte limit is not absolute: a record larger than [maxBytes] is still
- * accepted when the buffer is empty, so a single oversized message cannot stall consumption.
+ * Blocking FIFO buffer, full when either [maxRecords] or [maxBytes] is reached; methods follow `BlockingQueue`.
+ * Like Kafka's `fetch.max.bytes`, a record larger than [maxBytes] is still accepted when the buffer is empty.
  */
 class RecordBuffer(
     val maxRecords: Int,
@@ -32,19 +30,12 @@ class RecordBuffer(
         require(maxBytes >= 1) { "maxBytes must be at least 1" }
     }
 
-    /** Number of buffered records. */
     val size: Int get() = lock.withLock { entries.size }
 
-    /** Total size in bytes of the buffered records, as reported to [offer]. */
     val sizeBytes: Long get() = lock.withLock { bytes }
 
     fun isEmpty(): Boolean = size == 0
 
-    /**
-     * Appends [record], waiting up to [timeout] for room. Returns false if there was still no room.
-     *
-     * @throws InterruptedException if the calling thread is interrupted
-     */
     fun offer(
         record: SourceRecord,
         sizeBytes: Long,
@@ -67,11 +58,6 @@ class RecordBuffer(
         }
     }
 
-    /**
-     * Removes the oldest record, waiting up to [timeout] for one to arrive. Returns null on timeout.
-     *
-     * @throws InterruptedException if the calling thread is interrupted
-     */
     fun poll(
         timeout: Long,
         unit: TimeUnit,
@@ -92,7 +78,6 @@ class RecordBuffer(
         }
     }
 
-    /** Moves up to [maxRecords] buffered records into [target] without waiting; returns how many were moved. */
     fun drainTo(
         target: MutableCollection<SourceRecord>,
         maxRecords: Int,
@@ -116,7 +101,6 @@ class RecordBuffer(
             notFull.signalAll()
         }
 
-    /** Current depth against both limits, e.g. "1234 / 10000 records, 5242880 / 67108864 bytes". */
     override fun toString(): String = lock.withLock { "${entries.size} / $maxRecords records, $bytes / $maxBytes bytes" }
 
     private fun hasRoomFor(sizeBytes: Long): Boolean = entries.isEmpty() || (entries.size < maxRecords && bytes + sizeBytes <= maxBytes)

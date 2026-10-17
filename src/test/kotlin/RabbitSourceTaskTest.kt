@@ -275,8 +275,6 @@ class RabbitSourceTaskTest {
         blocked.join(300)
         assertFalse(finished.get(), "8 + 4 bytes exceeds the 10-byte limit, so the handler should wait")
 
-        // poll() frees space as soon as it takes the first record, so the unblocked handler may enqueue "abcd" in time
-        // for the same poll's drainTo(); collect across polls instead of assuming how the records are batched.
         val records = task.poll().toMutableList()
         blocked.join(2_000)
         assertTrue(finished.get(), "handler should resume once poll() frees space")
@@ -408,7 +406,6 @@ class RabbitSourceTaskTest {
         val settings =
             constructor.newInstance(
                 bufferSize,
-                // bufferMaxBytes only feeds the depth log; tests set limits through setMessageQueue()
                 Long.MAX_VALUE,
                 pollMaxBatchSize,
                 "test-topic",
