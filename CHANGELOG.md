@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
 ### Added
 - Kafka record timestamp is now set from the RabbitMQ message's AMQP `creation-time` property, when present.
 - `rabbitmq.headers.amqp.enabled` config to copy standard AMQP message properties (`messageId`, `correlationId`,
@@ -40,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of failing the task; messages without a body produce a `null` value.
 - Stopping the task no longer hangs when the internal buffer is full and the consumer thread is blocked on it.
 - A task that fails during `start()` now also closes any consumers it had already created.
+
+### Changed
+- Upgraded `stream-client` from 1.8.0 to 1.11.0, `slf4j-api` from 2.0.18 to 2.0.20, and the targeted Kafka Connect
+  API from 4.3.0 to 4.3.1.
 
 ## [0.3.0] - 2026-06-25
 
