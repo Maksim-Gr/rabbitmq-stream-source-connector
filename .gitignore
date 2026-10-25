@@ -46,3 +46,9 @@ bin/
 ### Mac OS ###
 .DS_Store
 
+
+### Local tooling / internal notes ###
+.claude/
+.agents/
+skills-lock.json
+GLOSSARY.md
