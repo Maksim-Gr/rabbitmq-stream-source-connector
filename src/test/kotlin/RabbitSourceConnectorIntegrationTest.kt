@@ -200,7 +200,7 @@ class RabbitSourceConnectorIntegrationTest {
         assertEquals(listOf(2L, 3L), records.map { it.sourceOffset()["offset"] })
     }
 
-    /** A message whose body the stream client encodes as an AMQP 1.0 `amqp-value` section, as AMQP 1.0 clients send. */
+    /** The stream client encodes a non-binary body as an AMQP 1.0 `amqp-value` section. */
     private class AmqpValueMessage(
         private val value: Any,
     ) : Message {
@@ -219,7 +219,6 @@ class RabbitSourceConnectorIntegrationTest {
         override fun getMessageAnnotations(): MutableMap<String, Any>? = null
     }
 
-    /** Publishes each body in order: byte arrays as `data` sections, anything else as `amqp-value`. */
     private fun sendBodiesToRabbitMQ(
         streamName: String,
         bodies: List<Any>,

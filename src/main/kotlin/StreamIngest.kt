@@ -14,15 +14,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Turns messages delivered by the stream consumers into buffered Kafka records for [poll].
- *
- * [resumeOffsets] holds, for every stream this task consumes, the offset its consumer resumes from, or null when it
- * starts from the configured offset. Stream offsets are contiguous, so a jump past the expected offset is a gap
- * (messages removed, typically by retention, before they reached Kafka) and a jump back is a rewind (redelivery).
- *
- * With `rabbitmq.error.handling=fail`, the first message that cannot become a record latches a failure: nothing after
- * it is buffered, and the next [poll] throws. A full buffer blocks [deliver] (backpressure) until [poll] frees space
- * or [close] is called.
+ * [resumeOffsets] maps each stream to the offset its consumer resumes from, or null when it starts from the
+ * configured offset. Stream offsets are contiguous, so a jump past the expected offset means messages were removed
+ * (typically by retention) before they reached Kafka, and a jump back means they are redelivered.
  */
 class StreamIngest(
     private val config: RabbitSourceConfig,
@@ -46,8 +40,8 @@ class StreamIngest(
         /**
          * Returns the message body as bytes. Bodies that are not AMQP binary data (e.g. an AMQP 1.0 `amqp-value`
          * string published by a non-stream client) make [Message.getBodyAsBinary] throw, so fall back to the native
-         * body: byte arrays as-is, scalars as their UTF-8 string form. Maps and lists (`amqp-value` maps and lists,
-         * `amqp-sequence`) are rejected: their string form is not a faithful encoding of the data.
+         * body: byte arrays as-is, scalars as their UTF-8 string form. Maps and lists are rejected, since their
+         * string form would lose data.
          */
         @Suppress("SwallowedException") // the exception only signals "not binary"; the native body is used instead
         private fun Message.bodyBytes(): ByteArray? =
@@ -77,10 +71,9 @@ class StreamIngest(
     @Volatile
     private var failure: Throwable? = null
 
-    /** Record and byte usage of the buffer, for logging. */
     val bufferStatus: String get() = buffer.toString()
 
-    /** Called on the consumer thread for every message of [stream]; blocks while the buffer is full. */
+    /** Blocks while the buffer is full. */
     fun deliver(
         stream: String,
         offset: Long,
@@ -115,7 +108,7 @@ class StreamIngest(
         }
     }
 
-    /** Called when the consumer of [stream] changes state; [previous] is null for its first transition. */
+    /** [previous] is null on a consumer's first transition. */
     fun stateChanged(
         stream: String,
         previous: Resource.State?,
@@ -140,11 +133,6 @@ class StreamIngest(
         }
     }
 
-    /**
-     * Returns up to `rabbitmq.poll.max.batch.size` buffered records, waiting briefly for the first one.
-     *
-     * @throws ConnectException once a message or consumer failure has been latched
-     */
     fun poll(): List<SourceRecord> {
         failure?.let { throw ConnectException("RabbitSourceTask failed while processing a message", it) }
         val first = buffer.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) ?: return emptyList()
@@ -154,7 +142,6 @@ class StreamIngest(
         return records
     }
 
-    /** Stops accepting messages, releases any [deliver] blocked on backpressure, and empties the buffer. */
     override fun close() {
         running.set(false)
         buffer.clear()

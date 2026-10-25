@@ -79,7 +79,7 @@ class RabbitSourceTask : SourceTask() {
 
     override fun stop() {
         logger.info("Stopping RabbitSourceTask")
-        // First, so consumer threads blocked on a full buffer return and the consumers can close.
+        // Before closing consumers: releases their threads if blocked on a full buffer.
         ingest?.close()
         if (::queueMonitor.isInitialized) queueMonitor.shutdown()
         consumers.forEach { consumer ->
