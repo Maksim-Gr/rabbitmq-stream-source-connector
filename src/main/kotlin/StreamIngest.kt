@@ -115,10 +115,10 @@ class StreamIngest(
         }
     }
 
-    /** Called when the consumer of [stream] changes state. */
+    /** Called when the consumer of [stream] changes state; [previous] is null for its first transition. */
     fun stateChanged(
         stream: String,
-        previous: Resource.State,
+        previous: Resource.State?,
         current: Resource.State,
     ) {
         when (current) {

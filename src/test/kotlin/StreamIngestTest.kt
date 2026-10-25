@@ -245,6 +245,16 @@ class StreamIngestTest {
     }
 
     @Test
+    fun `first state transition has no previous state`() {
+        val ingest = ingest()
+        ingest.stateChanged(STREAM, null, Resource.State.OPEN)
+        assertTrue(ingest.poll().isEmpty())
+
+        ingest.stateChanged(STREAM, null, Resource.State.CLOSED)
+        assertThrows(ConnectException::class.java) { ingest.poll() }
+    }
+
+    @Test
     fun `consumer closing after close does not fail the task`() {
         val ingest = ingest()
         ingest.close()

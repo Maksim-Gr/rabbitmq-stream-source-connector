@@ -1,8 +1,11 @@
 package com.github.maksimgr
 
 import com.rabbitmq.stream.Environment
+import com.rabbitmq.stream.Message
 import com.rabbitmq.stream.OffsetSpecification
 import com.rabbitmq.stream.Producer
+import com.rabbitmq.stream.Properties
+import org.apache.kafka.connect.errors.ConnectException
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTaskContext
 import org.apache.kafka.connect.storage.OffsetStorageReader
@@ -156,6 +159,101 @@ class RabbitSourceConnectorIntegrationTest {
         )
     }
 
+    @Test
+    fun `should fail the task on a structured amqp-value body when error handling is fail`() {
+        val streamName = "structured_fail_queue"
+        createStream(streamName)
+        sendBodiesToRabbitMQ(streamName, listOf(mapOf("orderId" to 7), "after".toByteArray()))
+
+        val failTask = startResumeTask(streamName, committedOffset = null)
+        val records = mutableListOf<SourceRecord>()
+        val deadline = System.currentTimeMillis() + 15_000
+        var error: ConnectException? = null
+        while (System.currentTimeMillis() < deadline && error == null) {
+            try {
+                records.addAll(failTask.poll())
+            } catch (e: ConnectException) {
+                error = e
+            }
+        }
+        failTask.stop()
+
+        assertNotNull(error, "The task must fail on a map body instead of writing it to Kafka")
+        assertTrue(error!!.cause?.message.orEmpty().contains("structured AMQP value"))
+        assertTrue(records.isEmpty(), "No record at or after the failed offset may reach Kafka")
+    }
+
+    @Test
+    fun `should skip structured amqp-value bodies and keep scalar ones when error handling is skip`() {
+        val streamName = "structured_skip_queue"
+        createStream(streamName)
+        sendBodiesToRabbitMQ(
+            streamName,
+            listOf(mapOf("orderId" to 7), listOf("a", "b"), "from amqp 1.0", "ok".toByteArray()),
+        )
+
+        val skipTask = startResumeTask(streamName, committedOffset = null, "rabbitmq.error.handling" to "skip")
+        val records = pollUntil(skipTask, 2)
+        skipTask.stop()
+
+        assertEquals(listOf("from amqp 1.0", "ok"), records.map { it.value() as String })
+        assertEquals(listOf(2L, 3L), records.map { it.sourceOffset()["offset"] })
+    }
+
+    /** A message whose body the stream client encodes as an AMQP 1.0 `amqp-value` section, as AMQP 1.0 clients send. */
+    private class AmqpValueMessage(
+        private val value: Any,
+    ) : Message {
+        override fun hasPublishingId() = false
+
+        override fun getPublishingId() = 0L
+
+        override fun getBodyAsBinary(): ByteArray = error("not binary")
+
+        override fun getBody(): Any = value
+
+        override fun getProperties(): Properties? = null
+
+        override fun getApplicationProperties(): MutableMap<String, Any>? = null
+
+        override fun getMessageAnnotations(): MutableMap<String, Any>? = null
+    }
+
+    /** Publishes each body in order: byte arrays as `data` sections, anything else as `amqp-value`. */
+    private fun sendBodiesToRabbitMQ(
+        streamName: String,
+        bodies: List<Any>,
+    ) {
+        val environment =
+            Environment
+                .builder()
+                .host(host)
+                .port(port)
+                .username("guest")
+                .password("guest")
+                .build()
+
+        val producer: Producer =
+            environment
+                .producerBuilder()
+                .stream(streamName)
+                .build()
+
+        val latch = java.util.concurrent.CountDownLatch(bodies.size)
+        bodies.forEach { body ->
+            val msg = if (body is ByteArray) producer.messageBuilder().addData(body).build() else AmqpValueMessage(body)
+            producer.send(msg) { confirmationStatus ->
+                if (confirmationStatus.isConfirmed) {
+                    latch.countDown()
+                }
+            }
+        }
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "all messages should be confirmed")
+
+        producer.close()
+        environment.close()
+    }
+
     private fun storeOffsetOnBroker(
         streamName: String,
         consumerName: String,
@@ -194,6 +292,7 @@ class RabbitSourceConnectorIntegrationTest {
     private fun startResumeTask(
         streamName: String,
         committedOffset: Any?,
+        vararg overrides: Pair<String, String>,
     ): RabbitSourceTask {
         val reader = mock(OffsetStorageReader::class.java)
         if (committedOffset != null) {
@@ -204,8 +303,8 @@ class RabbitSourceConnectorIntegrationTest {
 
         val resumeTask = RabbitSourceTask()
         resumeTask.initialize(context)
-        val taskConfig = config.toMutableMap().apply { put("rabbitmq.queue", streamName) }
-        resumeTask.start(taskConfig)
+        val taskConfig = config.toMutableMap().apply { put("rabbitmq.queue", streamName) } + overrides
+        resumeTask.start(taskConfig.toMutableMap())
         return resumeTask
     }
 
