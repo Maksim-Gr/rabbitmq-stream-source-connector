@@ -13,14 +13,12 @@ enum class ErrorHandling { FAIL, SKIP }
 
 enum class StoreType { JKS, PKCS12 }
 
-/** A truststore or keystore file. [password] is Kafka's [Password], so it never appears in `toString()`. */
 class StoreSettings(
     val path: String,
     val password: Password,
     val type: StoreType,
 )
 
-/** TLS settings; a null store means it is not configured (default trust, or no client certificate). */
 class TlsSettings(
     val truststore: StoreSettings?,
     val keystore: StoreSettings?,
@@ -31,7 +29,6 @@ class RabbitSourceConfig(
 ) : AbstractConfig(CONFIG, props) {
     val topic: String = getString(CONFIG_NAME_DESTINATION_KAFKA_TOPIC)
 
-    /** Configured stream names, trimmed, without empty entries or duplicates. */
     val streams: List<String> = parseStreams(getList(CONFIG_NAME_SOURCE_RABBITMQ_QUEUES))
 
     val host: String = getString(RABBITMQ_HOST)
@@ -43,7 +40,6 @@ class RabbitSourceConfig(
     val requestedHeartbeat: Duration = Duration.ofSeconds(getInt(RABBITMQ_REQUESTED_HEARTBEAT).toLong())
     val recoveryBackoff: Duration = Duration.ofSeconds(getInt(RABBITMQ_RECOVERY_BACKOFF_SECONDS).toLong())
 
-    /** Null when TLS is disabled. */
     val tls: TlsSettings? =
         if (getBoolean(RABBITMQ_TLS_ENABLED)) {
             TlsSettings(
@@ -54,7 +50,6 @@ class RabbitSourceConfig(
             null
         }
 
-    /** The configured offset as written, for logging. */
     val configuredOffset: String = getString(CONFIG_NAME_RABBITMQ_OFFSET)
     val startOffset: OffsetSpecification = RabbitOffsetResolver.resolveOffset(configuredOffset)
 
@@ -66,7 +61,6 @@ class RabbitSourceConfig(
     val headersEnabled: Boolean = getBoolean(RABBITMQ_HEADERS_ENABLED)
     val amqpHeadersEnabled: Boolean = getBoolean(RABBITMQ_HEADERS_AMQP_ENABLED)
 
-    /** 'messageId', 'correlationId', an application property name, or null for no key. */
     val messageKeySource: String? = getString(RABBITMQ_MESSAGE_KEY).trim().ifEmpty { null }
     val errorHandling: ErrorHandling = choice(RABBITMQ_ERROR_HANDLING)
 
@@ -112,7 +106,6 @@ class RabbitSourceConfig(
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
         private const val RABBITMQ_ERROR_HANDLING = "rabbitmq.error.handling"
 
-        /** Returns a copy of [props] that assigns only [streams] to a task. */
         fun forStreams(
             props: Map<String, String>,
             streams: List<String>,
@@ -123,7 +116,6 @@ class RabbitSourceConfig(
         private inline fun <reified E : Enum<E>> parseChoice(value: String): E? =
             enumValues<E>().firstOrNull { it.name.equals(value.trim(), ignoreCase = true) }
 
-        /** Accepts the names of [E], ignoring case and surrounding whitespace. */
         private inline fun <reified E : Enum<E>> choiceValidator(crossinline display: (E) -> String) =
             ConfigDef.Validator { name, value ->
                 if (value is String && parseChoice<E>(value) == null) {
