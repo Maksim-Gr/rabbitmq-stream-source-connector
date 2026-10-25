@@ -393,30 +393,21 @@ class RabbitSourceTaskTest {
         skipFailedMessages: Boolean = false,
         headersEnabled: Boolean = false,
     ) {
-        val messageFormatClass = Class.forName("com.github.maksimgr.RabbitSourceTask\$MessageFormat")
-
-        @Suppress("UNCHECKED_CAST")
-        val stringFormat = messageFormatClass.getMethod("valueOf", String::class.java).invoke(null, "STRING")
-
-        val settingsClass = Class.forName("com.github.maksimgr.RabbitSourceTask\$TaskSettings")
-        val constructor = settingsClass.declaredConstructors.first()
-        constructor.isAccessible = true
-        // bufferSize, bufferMaxBytes, pollMaxBatchSize, topic, messageFormat, headersEnabled, amqpHeadersEnabled,
-        // messageKeySource, skipFailedMessages
-        val settings =
-            constructor.newInstance(
-                bufferSize,
-                Long.MAX_VALUE,
-                pollMaxBatchSize,
-                "test-topic",
-                stringFormat,
-                headersEnabled,
-                false,
-                null,
-                skipFailedMessages,
+        val config =
+            RabbitSourceConfig(
+                mapOf(
+                    "kafka.topic" to "test-topic",
+                    "rabbitmq.queue" to "test",
+                    "rabbitmq.username" to "guest",
+                    "rabbitmq.password" to "guest",
+                    "rabbitmq.poll.max.batch.size" to pollMaxBatchSize.toString(),
+                    "rabbitmq.queue.buffer.size" to bufferSize.toString(),
+                    "rabbitmq.error.handling" to if (skipFailedMessages) "skip" else "fail",
+                    "rabbitmq.headers.enabled" to headersEnabled.toString(),
+                ),
             )
-        val field: Field = RabbitSourceTask::class.java.getDeclaredField("settings")
+        val field: Field = RabbitSourceTask::class.java.getDeclaredField("config")
         field.isAccessible = true
-        field.set(task, settings)
+        field.set(task, config)
     }
 }

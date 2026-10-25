@@ -27,7 +27,15 @@ object RabbitOffsetResolver {
             }
         }
 
-    fun committedOffset(storedOffset: Map<String, Any?>?): Long? = (storedOffset?.get("offset") as? Number)?.toLong()
+    // Offset storage format; changing either key orphans every committed offset.
+    private const val PARTITION_KEY = "queue"
+    private const val OFFSET_KEY = "offset"
+
+    fun sourcePartition(stream: String): Map<String, String> = mapOf(PARTITION_KEY to stream)
+
+    fun sourceOffset(offset: Long): Map<String, Long> = mapOf(OFFSET_KEY to offset)
+
+    fun committedOffset(storedOffset: Map<String, Any?>?): Long? = (storedOffset?.get(OFFSET_KEY) as? Number)?.toLong()
 
     private fun String.toTimestampOrNull(): Long? =
         runCatching {

@@ -94,4 +94,13 @@ class RabbitSourceConnectorTest {
         val queues = taskConfigs.flatMap { it["rabbitmq.queue"]!!.split(",") }
         assertTrue { queues.containsAll(listOf("test_queue", "test_queue_2", "test_queue_3")) }
     }
+
+    @Test
+    fun `taskConfigs should not assign empty stream names`() {
+        val props = config.toMutableMap()
+        props["rabbitmq.queue"] = "test_queue,,test_queue_2,"
+        connector.start(props)
+        val taskConfigs = connector.taskConfigs(4)
+        assertEquals(listOf("test_queue", "test_queue_2"), taskConfigs.map { it["rabbitmq.queue"] })
+    }
 }

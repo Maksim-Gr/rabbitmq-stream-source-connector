@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory
 import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
-import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -30,20 +29,6 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.TrustManagerFactory
 
 class RabbitSourceTask : SourceTask() {
-    private enum class MessageFormat { STRING, BYTES }
-
-    private data class TaskSettings(
-        val bufferSize: Int,
-        val bufferMaxBytes: Long,
-        val pollMaxBatchSize: Int,
-        val topic: String,
-        val messageFormat: MessageFormat,
-        val headersEnabled: Boolean,
-        val amqpHeadersEnabled: Boolean,
-        val messageKeySource: String?,
-        val skipFailedMessages: Boolean,
-    )
-
     companion object {
         @JvmStatic
         val logger: Logger = LoggerFactory.getLogger(RabbitSourceTask::class.java)
@@ -76,7 +61,6 @@ class RabbitSourceTask : SourceTask() {
 
     private lateinit var config: RabbitSourceConfig
     private lateinit var environment: Environment
-    private lateinit var settings: TaskSettings
     private val consumers = CopyOnWriteArrayList<Consumer>()
 
     @Volatile
@@ -96,40 +80,21 @@ class RabbitSourceTask : SourceTask() {
         try {
             failure = null
             config = RabbitSourceConfig(props)
-            settings =
-                TaskSettings(
-                    bufferSize = config.getInt("rabbitmq.queue.buffer.size"),
-                    bufferMaxBytes = config.getLong("rabbitmq.queue.buffer.max.bytes"),
-                    pollMaxBatchSize = config.getInt("rabbitmq.poll.max.batch.size"),
-                    topic = config.getString("kafka.topic"),
-                    messageFormat =
-                        when (config.getString("rabbitmq.message.format").trim().lowercase()) {
-                            "bytes" -> MessageFormat.BYTES
-                            else -> MessageFormat.STRING
-                        },
-                    headersEnabled = config.getBoolean("rabbitmq.headers.enabled"),
-                    amqpHeadersEnabled = config.getBoolean("rabbitmq.headers.amqp.enabled"),
-                    messageKeySource = config.getString("rabbitmq.message.key").trim().ifEmpty { null },
-                    skipFailedMessages = config.getString("rabbitmq.error.handling").trim().lowercase() == "skip",
-                )
-            messageQueue = RecordBuffer(settings.bufferSize, settings.bufferMaxBytes)
-            val recoveryBackoff = config.getInt("rabbitmq.recovery.backoff.seconds").toLong()
+            messageQueue = RecordBuffer(config.bufferMaxRecords, config.bufferMaxBytes)
             val envBuilder =
                 Environment
                     .builder()
-                    .host(config.getString("rabbitmq.host"))
-                    .port(config.getInt("rabbitmq.port"))
-                    .username(config.getString("rabbitmq.username"))
-                    .password(config.getPassword("rabbitmq.password").value())
-                    .virtualHost(config.getString("rabbitmq.virtual.host"))
-                    .requestedMaxFrameSize(config.getInt("rabbitmq.requested.frame.max"))
-                    .requestedHeartbeat(
-                        Duration.ofSeconds(config.getInt("rabbitmq.requested.heartbeat.seconds").toLong()),
-                    )
-                    .recoveryBackOffDelayPolicy(BackOffDelayPolicy.fixed(Duration.ofSeconds(recoveryBackoff)))
+                    .host(config.host)
+                    .port(config.port)
+                    .username(config.username)
+                    .password(config.password.value())
+                    .virtualHost(config.virtualHost)
+                    .requestedMaxFrameSize(config.requestedFrameMax)
+                    .requestedHeartbeat(config.requestedHeartbeat)
+                    .recoveryBackOffDelayPolicy(BackOffDelayPolicy.fixed(config.recoveryBackoff))
 
-            if (config.getBoolean("rabbitmq.tls.enabled")) {
-                envBuilder.tls().sslContext(buildSslContext()).environmentBuilder()
+            config.tls?.let { tls ->
+                envBuilder.tls().sslContext(buildSslContext(tls)).environmentBuilder()
             }
 
             environment = envBuilder.build()
@@ -179,45 +144,43 @@ class RabbitSourceTask : SourceTask() {
         val first = messageQueue.poll(POLL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) ?: return records
         records.add(first)
         // Cap the batch so a single poll cannot return an unbounded number of records.
-        messageQueue.drainTo(records, settings.pollMaxBatchSize - 1)
+        messageQueue.drainTo(records, config.pollMaxBatchSize - 1)
         return records
     }
 
     private fun initializeConnection() {
-        val queueNames = config.getList("rabbitmq.queue").map { it.trim() }.filter { it.isNotEmpty() }
-        require(queueNames.isNotEmpty()) { "rabbitmq queue must be provided" }
-        val offsetStr = config.getString("rabbitmq.offset")
-        val configOffsetSpec = RabbitOffsetResolver.resolveOffset(offsetStr)
+        val streams = config.streams
+        require(streams.isNotEmpty()) { "rabbitmq queue must be provided" }
         logger.info("RabbitSourceTask initializing connection")
 
-        queueNames.forEach { queueName ->
+        streams.forEach { stream ->
             // Prefer the offset committed to Kafka Connect's offset store so the task
             // resumes exactly where Kafka last acknowledged (at-least-once). Only when
             // no committed offset exists do we fall back to the configured start offset.
-            val partition = mapOf("queue" to queueName)
+            val partition = RabbitOffsetResolver.sourcePartition(stream)
             val committedOffset = RabbitOffsetResolver.committedOffset(context.offsetStorageReader().offset(partition))
             val expectedOffset = committedOffset?.plus(1) ?: NO_EXPECTED_OFFSET
             val offsetSpec =
                 if (committedOffset != null) {
-                    logger.info("Resuming queue '$queueName' from committed offset ${committedOffset + 1}")
+                    logger.info("Resuming stream '$stream' from committed offset ${committedOffset + 1}")
                     OffsetSpecification.offset(committedOffset + 1)
                 } else {
-                    logger.info("No committed offset for queue '$queueName'; starting from '$offsetStr'")
-                    configOffsetSpec
+                    logger.info("No committed offset for stream '$stream'; starting from '${config.configuredOffset}'")
+                    config.startOffset
                 }
 
             // Keep unnamed: for a named consumer the client resumes from a broker-stored offset, even with noTrackingStrategy().
             val consumer =
                 environment.consumerBuilder()
-                    .stream(queueName)
+                    .stream(stream)
                     .noTrackingStrategy()
                     .offset(offsetSpec)
-                    .messageHandler(buildMessageHandler(queueName, partition, expectedOffset))
-                    .listeners(buildStateListener(queueName))
+                    .messageHandler(buildMessageHandler(stream, partition, expectedOffset))
+                    .listeners(buildStateListener(stream))
                     .build()
             consumers.add(consumer)
         }
-        logger.info("Started consuming RabbitMQ streams: $queueNames (configured offset: $offsetStr)")
+        logger.info("Started consuming RabbitMQ streams: $streams (configured offset: ${config.configuredOffset})")
     }
 
     /**
@@ -271,7 +234,7 @@ class RabbitSourceTask : SourceTask() {
                     logger.warn("Message handler interrupted for queue '$queueName'")
                 }
             } catch (e: Exception) {
-                if (settings.skipFailedMessages) {
+                if (config.errorHandling == ErrorHandling.SKIP) {
                     logger.error("Skipping message from queue '$queueName' at offset $offset (rabbitmq.error.handling=skip)", e)
                 } else {
                     logger.error("Error processing message from queue '$queueName' at offset $offset", e)
@@ -308,20 +271,20 @@ class RabbitSourceTask : SourceTask() {
         msg: Message,
         body: ByteArray?,
     ): SourceRecord {
-        val sourceOffset = mapOf("offset" to offset)
+        val sourceOffset = RabbitOffsetResolver.sourceOffset(offset)
         val key = resolveKey(msg)
         val keySchema = if (key != null) Schema.STRING_SCHEMA else null
 
         val (valueSchema, value) =
             when {
-                body == null && settings.messageFormat == MessageFormat.BYTES -> Schema.OPTIONAL_BYTES_SCHEMA to null
+                body == null && config.messageFormat == MessageFormat.BYTES -> Schema.OPTIONAL_BYTES_SCHEMA to null
                 body == null -> Schema.OPTIONAL_STRING_SCHEMA to null
-                settings.messageFormat == MessageFormat.BYTES -> Schema.BYTES_SCHEMA to body
+                config.messageFormat == MessageFormat.BYTES -> Schema.BYTES_SCHEMA to body
                 else -> Schema.STRING_SCHEMA to String(body, StandardCharsets.UTF_8)
             }
 
         val headers = ConnectHeaders()
-        if (settings.headersEnabled) {
+        if (config.headersEnabled) {
             msg.applicationProperties?.forEach { (name, propValue) ->
                 when (propValue) {
                     null -> {}
@@ -330,7 +293,7 @@ class RabbitSourceTask : SourceTask() {
                 }
             }
         }
-        if (settings.amqpHeadersEnabled) {
+        if (config.amqpHeadersEnabled) {
             addAmqpHeaders(headers, msg)
         }
 
@@ -339,7 +302,7 @@ class RabbitSourceTask : SourceTask() {
         return SourceRecord(
             partition,
             sourceOffset,
-            settings.topic,
+            config.topic,
             null,
             keySchema,
             key,
@@ -369,7 +332,7 @@ class RabbitSourceTask : SourceTask() {
 
     /** Resolves the Kafka record key from the configured message property, or null if unset/absent. */
     private fun resolveKey(msg: Message): String? {
-        val source = settings.messageKeySource ?: return null
+        val source = config.messageKeySource ?: return null
         return when (source) {
             "messageId" -> msg.properties?.messageId?.toString()
             "correlationId" -> msg.properties?.correlationId?.toString()
@@ -377,28 +340,23 @@ class RabbitSourceTask : SourceTask() {
         }
     }
 
-    private fun buildSslContext(): SslContext {
+    private fun buildSslContext(tls: TlsSettings): SslContext {
+        fun StoreSettings.load(): KeyStore =
+            KeyStore.getInstance(type.name).also { store ->
+                FileInputStream(path).use { store.load(it, password.value().toCharArray()) }
+            }
+
         val builder = SslContextBuilder.forClient()
 
-        val truststorePath = config.getString("rabbitmq.tls.truststore.path")
-        if (truststorePath.isNotEmpty()) {
-            val truststorePassword = config.getPassword("rabbitmq.tls.truststore.password").value()
-            val truststoreType = config.getString("rabbitmq.tls.truststore.type").trim().uppercase()
-            val truststore = KeyStore.getInstance(truststoreType)
-            FileInputStream(truststorePath).use { truststore.load(it, truststorePassword.toCharArray()) }
+        tls.truststore?.let { store ->
             val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-            tmf.init(truststore)
+            tmf.init(store.load())
             builder.trustManager(tmf)
         }
 
-        val keystorePath = config.getString("rabbitmq.tls.keystore.path")
-        if (keystorePath.isNotEmpty()) {
-            val keystorePassword = config.getPassword("rabbitmq.tls.keystore.password").value().toCharArray()
-            val keystoreType = config.getString("rabbitmq.tls.keystore.type").trim().uppercase()
-            val keystore = KeyStore.getInstance(keystoreType)
-            FileInputStream(keystorePath).use { keystore.load(it, keystorePassword) }
+        tls.keystore?.let { store ->
             val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-            kmf.init(keystore, keystorePassword)
+            kmf.init(store.load(), store.password.value().toCharArray())
             builder.keyManager(kmf)
         }
 

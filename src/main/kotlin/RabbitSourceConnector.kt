@@ -41,24 +41,19 @@ class RabbitSourceConnector : SourceConnector() {
     override fun taskClass(): Class<out Task> = RabbitSourceTask::class.java
 
     override fun taskConfigs(maxTasks: Int): List<Map<String, String>> {
-        val cfg = RabbitSourceConfig(settings.toMutableMap())
-        val queues: List<String> = cfg.getList("rabbitmq.queue").distinct()
-        if (queues.isEmpty()) {
-            logger.info("no queues configured")
+        val streams = RabbitSourceConfig(settings).streams
+        if (streams.isEmpty()) {
+            logger.info("no streams configured")
             return emptyList()
         }
-        val numTasks = minOf(queues.size, maxTasks)
+        val numTasks = minOf(streams.size, maxTasks)
         if (numTasks == 0) return emptyList()
 
-        return queues
+        return streams
             .withIndex()
-            .groupBy({ (index, _) -> index % numTasks }, { (_, queue) -> queue })
+            .groupBy({ (index, _) -> index % numTasks }, { (_, stream) -> stream })
             .values
-            .map { assignedQueues ->
-                HashMap(settings).apply {
-                    put("rabbitmq.queue", assignedQueues.joinToString(","))
-                }
-            }
+            .map { assignedStreams -> RabbitSourceConfig.forStreams(settings, assignedStreams) }
     }
 
     override fun stop() {
