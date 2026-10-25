@@ -1,12 +1,88 @@
 package com.github.maksimgr
 
+import com.rabbitmq.stream.OffsetSpecification
 import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.config.ConfigDef
 import org.apache.kafka.common.config.ConfigException
+import org.apache.kafka.common.config.types.Password
+import java.time.Duration
+
+enum class MessageFormat { STRING, BYTES }
+
+enum class ErrorHandling { FAIL, SKIP }
+
+enum class StoreType { JKS, PKCS12 }
+
+/** A truststore or keystore file. [password] is Kafka's [Password], so it never appears in `toString()`. */
+class StoreSettings(
+    val path: String,
+    val password: Password,
+    val type: StoreType,
+)
+
+/** TLS settings; a null store means it is not configured (default trust, or no client certificate). */
+class TlsSettings(
+    val truststore: StoreSettings?,
+    val keystore: StoreSettings?,
+)
 
 class RabbitSourceConfig(
-    props: MutableMap<*, *>,
+    props: Map<*, *>,
 ) : AbstractConfig(CONFIG, props) {
+    val topic: String = getString(CONFIG_NAME_DESTINATION_KAFKA_TOPIC)
+
+    /** Configured stream names, trimmed, without empty entries or duplicates. */
+    val streams: List<String> = parseStreams(getList(CONFIG_NAME_SOURCE_RABBITMQ_QUEUES))
+
+    val host: String = getString(RABBITMQ_HOST)
+    val port: Int = getInt(RABBITMQ_PORT)
+    val username: String = getString(RABBITMQ_USERNAME)
+    val password: Password = getPassword(RABBITMQ_PASSWORD)
+    val virtualHost: String = getString(RABBITMQ_VIRTUAL_HOST)
+    val requestedFrameMax: Int = getInt(RABBITMQ_REQUESTED_FRAME_MAX)
+    val requestedHeartbeat: Duration = Duration.ofSeconds(getInt(RABBITMQ_REQUESTED_HEARTBEAT).toLong())
+    val recoveryBackoff: Duration = Duration.ofSeconds(getInt(RABBITMQ_RECOVERY_BACKOFF_SECONDS).toLong())
+
+    /** Null when TLS is disabled. */
+    val tls: TlsSettings? =
+        if (getBoolean(RABBITMQ_TLS_ENABLED)) {
+            TlsSettings(
+                truststore = store(RABBITMQ_TLS_TRUSTSTORE_PATH, RABBITMQ_TLS_TRUSTSTORE_PASSWORD, RABBITMQ_TLS_TRUSTSTORE_TYPE),
+                keystore = store(RABBITMQ_TLS_KEYSTORE_PATH, RABBITMQ_TLS_KEYSTORE_PASSWORD, RABBITMQ_TLS_KEYSTORE_TYPE),
+            )
+        } else {
+            null
+        }
+
+    /** The configured offset as written, for logging. */
+    val configuredOffset: String = getString(CONFIG_NAME_RABBITMQ_OFFSET)
+    val startOffset: OffsetSpecification = RabbitOffsetResolver.resolveOffset(configuredOffset)
+
+    val bufferMaxRecords: Int = getInt(RABBITMQ_QUEUE_BUFFER_SIZE)
+    val bufferMaxBytes: Long = getLong(RABBITMQ_QUEUE_BUFFER_MAX_BYTES)
+    val pollMaxBatchSize: Int = getInt(RABBITMQ_POLL_MAX_BATCH_SIZE)
+
+    val messageFormat: MessageFormat = choice(RABBITMQ_MESSAGE_FORMAT)
+    val headersEnabled: Boolean = getBoolean(RABBITMQ_HEADERS_ENABLED)
+    val amqpHeadersEnabled: Boolean = getBoolean(RABBITMQ_HEADERS_AMQP_ENABLED)
+
+    /** 'messageId', 'correlationId', an application property name, or null for no key. */
+    val messageKeySource: String? = getString(RABBITMQ_MESSAGE_KEY).trim().ifEmpty { null }
+    val errorHandling: ErrorHandling = choice(RABBITMQ_ERROR_HANDLING)
+
+    private fun store(
+        pathKey: String,
+        passwordKey: String,
+        typeKey: String,
+    ): StoreSettings? {
+        val path = getString(pathKey)
+        if (path.isEmpty()) return null
+        return StoreSettings(path, getPassword(passwordKey), choice(typeKey))
+    }
+
+    private inline fun <reified E : Enum<E>> choice(key: String): E =
+        parseChoice<E>(getString(key)) ?: error("'$key' passed validation but is not a ${E::class.simpleName}")
+
     companion object {
         private const val CONFIG_NAME_DESTINATION_KAFKA_TOPIC = "kafka.topic"
         private const val CONFIG_NAME_SOURCE_RABBITMQ_QUEUES = "rabbitmq.queue"
@@ -36,19 +112,29 @@ class RabbitSourceConfig(
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
         private const val RABBITMQ_ERROR_HANDLING = "rabbitmq.error.handling"
 
-        private val MESSAGE_FORMAT_VALIDATOR =
+        /** Returns a copy of [props] that assigns only [streams] to a task. */
+        fun forStreams(
+            props: Map<String, String>,
+            streams: List<String>,
+        ): Map<String, String> = HashMap(props).apply { put(CONFIG_NAME_SOURCE_RABBITMQ_QUEUES, streams.joinToString(",")) }
+
+        private fun parseStreams(values: List<String>): List<String> = values.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+        private inline fun <reified E : Enum<E>> parseChoice(value: String): E? =
+            enumValues<E>().firstOrNull { it.name.equals(value.trim(), ignoreCase = true) }
+
+        /** Accepts the names of [E], ignoring case and surrounding whitespace. */
+        private inline fun <reified E : Enum<E>> choiceValidator(crossinline display: (E) -> String) =
             ConfigDef.Validator { name, value ->
-                if (value is String && value.trim().lowercase() !in setOf("string", "bytes")) {
-                    throw ConfigException(name, value, "Must be 'string' or 'bytes'")
+                if (value is String && parseChoice<E>(value) == null) {
+                    val allowed = enumValues<E>().joinToString(" or ") { "'${display(it)}'" }
+                    throw ConfigException(name, value, "Must be $allowed")
                 }
             }
 
-        private val ERROR_HANDLING_VALIDATOR =
-            ConfigDef.Validator { name, value ->
-                if (value is String && value.trim().lowercase() !in setOf("fail", "skip")) {
-                    throw ConfigException(name, value, "Must be 'fail' or 'skip'")
-                }
-            }
+        private val MESSAGE_FORMAT_VALIDATOR = choiceValidator<MessageFormat> { it.name.lowercase() }
+
+        private val ERROR_HANDLING_VALIDATOR = choiceValidator<ErrorHandling> { it.name.lowercase() }
 
         private val NON_EMPTY_STRING_VALIDATOR =
             ConfigDef.Validator { name, value ->
@@ -59,12 +145,7 @@ class RabbitSourceConfig(
 
         private val PORT_RANGE_VALIDATOR = ConfigDef.Range.between(1, 65535)
 
-        private val KEYSTORE_TYPE_VALIDATOR =
-            ConfigDef.Validator { name, value ->
-                if (value is String && value.trim().uppercase() !in setOf("JKS", "PKCS12")) {
-                    throw ConfigException(name, value, "Must be 'JKS' or 'PKCS12'")
-                }
-            }
+        private val KEYSTORE_TYPE_VALIDATOR = choiceValidator<StoreType> { it.name }
 
         private val OFFSET_VALIDATOR =
             ConfigDef.Validator { name, value ->

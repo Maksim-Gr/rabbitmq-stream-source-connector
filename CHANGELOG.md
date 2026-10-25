@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Empty entries in `rabbitmq.queue` (for example `orders,,events` or a trailing comma) are no longer assigned to a
+  task as a stream name. Previously a task that received only an empty entry failed to start.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added

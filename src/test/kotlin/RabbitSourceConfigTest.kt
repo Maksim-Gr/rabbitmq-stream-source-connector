@@ -4,6 +4,8 @@ import org.apache.kafka.common.config.ConfigException
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.time.Duration
+import kotlin.test.assertNotNull
 
 class RabbitSourceConfigTest {
     private fun validProps(overrides: Map<String, String> = emptyMap()): MutableMap<String, String> {
@@ -164,5 +166,75 @@ class RabbitSourceConfigTest {
     fun testQueueListParsing() {
         val config = RabbitSourceConfig(validProps(mapOf("rabbitmq.queue" to "orders,events")))
         assertEquals(listOf("orders", "events"), config.getList("rabbitmq.queue"))
+    }
+
+    @Test
+    @DisplayName("Stream names are trimmed, and empty entries and duplicates are dropped")
+    fun testStreamsCleanup() {
+        val config = RabbitSourceConfig(validProps(mapOf("rabbitmq.queue" to "orders, ,events,orders,")))
+        assertEquals(listOf("orders", "events"), config.streams)
+    }
+
+    @Test
+    @DisplayName("Choice values are exposed as enums, ignoring case and surrounding whitespace")
+    fun testTypedChoices() {
+        val config =
+            RabbitSourceConfig(
+                validProps(
+                    mapOf(
+                        "rabbitmq.message.format" to " BYTES ",
+                        "rabbitmq.error.handling" to "Skip",
+                    ),
+                ),
+            )
+        assertEquals(MessageFormat.BYTES, config.messageFormat)
+        assertEquals(ErrorHandling.SKIP, config.errorHandling)
+    }
+
+    @Test
+    @DisplayName("Typed defaults match the documented defaults")
+    fun testTypedDefaults() {
+        val config = RabbitSourceConfig(validProps())
+        assertEquals(MessageFormat.STRING, config.messageFormat)
+        assertEquals(ErrorHandling.FAIL, config.errorHandling)
+        assertEquals(10000, config.bufferMaxRecords)
+        assertEquals(64L * 1024 * 1024, config.bufferMaxBytes)
+        assertEquals(1000, config.pollMaxBatchSize)
+        assertEquals(Duration.ofSeconds(60), config.requestedHeartbeat)
+        assertEquals(Duration.ofSeconds(5), config.recoveryBackoff)
+        assertEquals("first", config.configuredOffset)
+        assertNull(config.messageKeySource)
+        assertNull(config.tls)
+    }
+
+    @Test
+    @DisplayName("TLS settings are null when disabled and omit stores without a path")
+    fun testTlsSettings() {
+        val config =
+            RabbitSourceConfig(
+                validProps(
+                    mapOf(
+                        "rabbitmq.tls.enabled" to "true",
+                        "rabbitmq.tls.truststore.path" to "/tmp/trust.p12",
+                        "rabbitmq.tls.truststore.password" to "s3cret",
+                        "rabbitmq.tls.truststore.type" to "pkcs12",
+                    ),
+                ),
+            )
+        val tls = assertNotNull(config.tls)
+        val truststore = assertNotNull(tls.truststore)
+        assertEquals("/tmp/trust.p12", truststore.path)
+        assertEquals(StoreType.PKCS12, truststore.type)
+        assertEquals("s3cret", truststore.password.value())
+        assertNull(tls.keystore)
+    }
+
+    @Test
+    @DisplayName("forStreams replaces only the stream list")
+    fun testForStreams() {
+        val props = validProps()
+        val taskProps = RabbitSourceConfig.forStreams(props, listOf("a", "b"))
+        assertEquals(listOf("a", "b"), RabbitSourceConfig(taskProps).streams)
+        assertEquals(props - "rabbitmq.queue", taskProps - "rabbitmq.queue")
     }
 }

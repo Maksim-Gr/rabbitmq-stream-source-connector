@@ -70,4 +70,12 @@ class RabbitOffsetResolverTest {
     fun testCommittedOffsetInteger() {
         assertEquals(42L, RabbitOffsetResolver.committedOffset(mapOf("offset" to 42)))
     }
+
+    @Test
+    @DisplayName("Source partition and offset keep the stored format")
+    fun testOffsetStorageFormat() {
+        assertEquals(mapOf("queue" to "orders"), RabbitOffsetResolver.sourcePartition("orders"))
+        assertEquals(mapOf("offset" to 7L), RabbitOffsetResolver.sourceOffset(7L))
+        assertEquals(7L, RabbitOffsetResolver.committedOffset(RabbitOffsetResolver.sourceOffset(7L)))
+    }
 }
