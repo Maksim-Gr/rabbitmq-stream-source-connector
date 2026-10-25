@@ -219,9 +219,14 @@ own setting for messages it cannot turn into records:
 - `rabbitmq.error.handling=skip`: the error is logged at ERROR with the stream and offset, the
   message is dropped (it is never written to Kafka), and consumption continues with the next one.
 
-Message bodies that are not AMQP binary data (e.g. an AMQP 1.0 `amqp-value` string sent by an
-AMQP 1.0 client) are converted to their string form rather than treated as errors. A message
-with no body produces a record with a `null` value.
+Message bodies that are not AMQP binary data but hold a single scalar value (e.g. an AMQP 1.0
+`amqp-value` string or number sent by an AMQP 1.0 client) are converted to their string form
+rather than treated as errors. Structured bodies (an `amqp-value` map or list, or an
+`amqp-sequence`) have no faithful string or byte form, so they are handled as conversion errors
+by this setting. A message with no body produces a record with a `null` value.
+
+Use `rabbitmq.message.format=bytes` for binary payloads such as Protobuf or Avro: with `string`,
+bytes that are not valid UTF-8 are replaced and cannot be recovered.
 
 ### Record timestamp
 If the AMQP message carries a `creation-time` property, it is used as the Kafka record
