@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Structured message bodies (an AMQP 1.0 `amqp-value` map or list, or an `amqp-sequence`) are now handled by
+  `rabbitmq.error.handling` instead of being written to Kafka as Java debug text such as `{orderId=7}`.
 - Empty entries in `rabbitmq.queue` (for example `orders,,events` or a trailing comma) are no longer assigned to a
   task as a stream name. Previously a task that received only an empty entry failed to start.
 
