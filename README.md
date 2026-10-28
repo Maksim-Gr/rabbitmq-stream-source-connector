@@ -126,7 +126,7 @@ This writes the archive to `build/distributions/` and an unpacked copy to `build
 | rabbitmq.username                          | —       | Username for connecting to RabbitMQ |
 | rabbitmq.password                          | —       | Password for connecting to RabbitMQ |
 | rabbitmq.virtual.host                      | `/`     | Virtual host on RabbitMQ to connect to |
-| rabbitmq.offset                            | `first` | Starting offset: `first`, `last`, `next`, or a timestamp `dd.MM.yyyy HH:mm:ss` |
+| rabbitmq.offset                            | `first` | Starting offset: `first`, `last`, `next`, or a timestamp `dd.MM.yyyy HH:mm:ss` in UTC |
 | rabbitmq.requested.heartbeat.seconds       | `60`    | Heartbeat interval in seconds for the RabbitMQ Streams connection |
 | rabbitmq.requested.frame.max               | `1048576` | Maximum frame size in bytes for the RabbitMQ Streams connection |
 | rabbitmq.tls.enabled                       | `false` | Enable TLS for the RabbitMQ Streams connection |
@@ -277,7 +277,7 @@ Internal message queue depth: 1234 / 10000 records, 5242880 / 67108864 bytes
 ```
 
 ### Connection recovery
-The connector enables automatic reconnection via the RabbitMQ Streams client's built-in recovery mechanism with a fixed 5-second back-off between retries. State transitions are surfaced as log lines:
+The connector enables automatic reconnection via the RabbitMQ Streams client's built-in recovery mechanism with a fixed back-off between retries, set by `rabbitmq.recovery.backoff.seconds` (default 5 seconds). State transitions are surfaced as log lines:
 
 | Event | Log level |
 |-------|-----------|
