@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-28
+
 ### Added
 - Releases ship a [Confluent component archive](https://docs.confluent.io/platform/current/connect/confluent-hub/component-archive.html)
   (`maksimgr-rabbitmq-stream-source-connector-<version>.zip`) with `manifest.json`, the connector and its dependencies
