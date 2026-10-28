@@ -23,10 +23,10 @@ Spin up RabbitMQ + Kafka + Kafka Connect with the bundled `docker-compose.yml` a
 end-to-end. Requires Docker and a JDK 17.
 
 ```bash
-# 1. Build the connector jar (lands in build/libs, which docker-compose mounts into Connect)
+# 1. Build the component archive and unpack it into build/plugin, which docker-compose mounts into Connect
 ./gradlew clean build
 
-# 2. Start RabbitMQ, a 3-broker Kafka cluster and Kafka Connect
+# 2. Start RabbitMQ, a Kafka broker and Kafka Connect (Apache Kafka 4.4.0)
 docker compose up -d
 
 # 3. Wait until the Connect REST API is ready
@@ -62,34 +62,56 @@ curl -s -X POST http://localhost:8083/connectors \
 curl -s http://localhost:8083/connectors/rabbitmq-source/status
 
 # 7. Read the message back out of Kafka
-docker compose exec kafka1 kafka-console-consumer \
-  --bootstrap-server kafka1:9093 --topic rabbitmq.messages --from-beginning --timeout-ms 10000
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:19092 --topic rabbitmq.messages --from-beginning --timeout-ms 10000
 ```
 
 You should see `{"id":1,"item":"book"}` printed by the console consumer. Tear down with `docker compose down -v`.
 
 ## Installation
-Follow these steps to install and deploy the RabbitMQ Source Connector:
-### 1. Build the Connector
-First, build the connector JAR file using Gradle:
+
+### Compatibility
+
+| Component     | Supported                                                   |
+|---------------|-------------------------------------------------------------|
+| Kafka Connect | 4.x (built against the 4.4.0 Connect API)                   |
+| Java          | 17+                                                         |
+| RabbitMQ      | 3.9+ with the `rabbitmq_stream` plugin enabled (port `5552`) |
+
+### Install from a release
+
+Each [GitHub release](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/releases) ships a
+[Confluent component archive](https://docs.confluent.io/platform/current/connect/confluent-hub/component-archive.html),
+`maksimgr-rabbitmq-stream-source-connector-<version>.zip`, plus a `checksums_sha256.txt`. The archive holds the
+connector and its dependencies in `lib/`, the license and third-party notices in `doc/`, and an example config in
+`etc/`.
+
+Unpack it into a directory listed in the Connect worker's
+[`plugin.path`](https://kafka.apache.org/documentation/#connectconfigs_plugin.path) and restart the worker:
+
 ```bash
-  ./gradlew clean build
+unzip maksimgr-rabbitmq-stream-source-connector-<version>.zip -d /opt/connect-plugins
 ```
-This command will clean the project and build the JAR file. The resulting JAR will be located in the `build/libs/` directory.
 
----
-
-### 2. Copy the JAR to Kafka Connect Plugin Directory
-After building the JAR, copy it into your Kafka Connect plugin path. You can do so by running the following command:
+On Confluent Platform you can install the same file with
+[`confluent connect plugin install`](https://docs.confluent.io/confluent-cli/current/command-reference/connect/plugin/confluent_connect_plugin_install.html):
 
 ```bash
-  cp build/libs/rabbitmq-stream-source-connector-*.jar $KAFKA_CONNECT_PLUGINS_DIR/
+confluent connect plugin install ./maksimgr-rabbitmq-stream-source-connector-<version>.zip
 ```
 
-Make sure that `$KAFKA_CONNECT_PLUGINS_DIR/` points to the correct directory where Kafka Connect loads its connectors (this is specified in the Kafka Connect worker's `plugin.path` configuration).
+The connector ships a ServiceLoader manifest, so it works with every
+[`plugin.discovery`](https://kafka.apache.org/documentation/#connectconfigs_plugin.discovery) mode, including
+`service_load`.
 
----
-### 3. Restart Kafka Connect
+### Build from source
+
+```bash
+./gradlew clean build
+```
+
+This writes the archive to `build/distributions/` and an unpacked copy to `build/plugin/`, which you can point
+`plugin.path` at directly.
 
 # Configuration
 

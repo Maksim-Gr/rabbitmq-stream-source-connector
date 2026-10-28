@@ -1,0 +1,34 @@
+{
+  "name": "rabbitmq-stream-source-connector",
+  "version": "${version}",
+  "title": "RabbitMQ Streams Source Connector",
+  "description": "Streams messages from RabbitMQ Streams (stream protocol, port 5552) into Kafka topics, with at-least-once delivery, TLS/mTLS, backpressure and automatic connection recovery.",
+  "owner": {
+    "username": "maksimgr",
+    "type": "user",
+    "name": "Maksim Grishchenko",
+    "url": "https://github.com/Maksim-Gr"
+  },
+  "support": {
+    "summary": "Community support via GitHub issues.",
+    "provider": "Community",
+    "url": "https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/issues"
+  },
+  "tags": ["rabbitmq", "streams", "source"],
+  "features": {
+    "supported_encodings": ["any"],
+    "single_message_transforms": true,
+    "confluent_control_center_integration": true,
+    "kafka_connect_api": true
+  },
+  "documentation_url": "https://github.com/Maksim-Gr/rabbitmq-stream-source-connector#readme",
+  "source_url": "https://github.com/Maksim-Gr/rabbitmq-stream-source-connector",
+  "license": [
+    {
+      "name": "Apache License 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    }
+  ],
+  "component_types": ["source"],
+  "requirements": ["Kafka Connect 4.x", "Java 17+", "RabbitMQ with the rabbitmq_stream plugin enabled"]
+}

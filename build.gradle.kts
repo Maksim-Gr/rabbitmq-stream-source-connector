@@ -1,3 +1,7 @@
+import com.github.jk1.license.filter.DependencyFilter
+import com.github.jk1.license.filter.LicenseBundleNormalizer
+import com.github.jk1.license.render.ReportRenderer
+import com.github.jk1.license.render.TextReportRenderer
 import java.time.LocalDateTime
 
 val buildTimestamp: String = LocalDateTime.now().toString()
@@ -9,6 +13,7 @@ plugins {
 
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
+    id("com.github.jk1.dependency-license-report") version "3.1.4"
 }
 
 group = "com.github.maksimgr"
@@ -118,6 +123,64 @@ tasks.test {
     finalizedBy(tasks.jacocoTestReport)
 }
 
+licenseReport {
+    outputDir = layout.buildDirectory.dir("reports/dependency-license").get().asFile.path
+    configurations = arrayOf("runtimeClasspath")
+    excludeOwnGroup = true
+    filters = arrayOf<DependencyFilter>(LicenseBundleNormalizer())
+    renderers = arrayOf<ReportRenderer>(TextReportRenderer("THIRD-PARTY-NOTICES.txt"))
+    allowedLicensesFile = file("config/license/allowed-licenses.json")
+}
+
+// Confluent component archive: https://docs.confluent.io/platform/current/connect/confluent-hub/component-archive.html
+val componentName = "maksimgr-${project.name}-${project.version}"
+
+val connectorArchive by tasks.registering(Zip::class) {
+    description = "Builds the Confluent component archive (manifest.json, lib/, doc/, etc/)"
+    group = "distribution"
+    dependsOn(tasks.checkLicense)
+
+    archiveFileName.set("$componentName.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+
+    into(componentName) {
+        from("config/connector/manifest.json") {
+            filter { it.replace("\${version}", project.version.toString()) }
+        }
+        into("lib") {
+            from(tasks.jar)
+            from(configurations.runtimeClasspath)
+        }
+        into("doc") {
+            from("README.md", "LICENSE", "CHANGELOG.md")
+            into("licenses") {
+                from(tasks.generateLicenseReport) { exclude("*.json") }
+                // Connect's plugin scanner treats any path ending in .jar as an archive, so the
+                // report's per-dependency "<artifact>.jar/" folders must not keep that suffix.
+                eachFile { relativePath = RelativePath(true, *relativePath.segments.map { it.removeSuffix(".jar") }.toTypedArray()) }
+                includeEmptyDirs = false
+            }
+        }
+        into("etc") {
+            from("examples/connector.properties")
+        }
+    }
+}
+
+// The archive unpacked into a plugin.path directory, used by docker-compose and the integration tests.
+val connectorPluginDir = layout.buildDirectory.dir("plugin")
+
+val connectorPlugin by tasks.registering(Sync::class) {
+    description = "Unpacks the component archive into build/plugin for use as a Connect plugin.path"
+    group = "distribution"
+    from(connectorArchive.map { zipTree(it.archiveFile) })
+    into(connectorPluginDir)
+}
+
+tasks.assemble {
+    dependsOn(connectorPlugin)
+}
+
 val integrationTest by tasks.registering(Test::class) {
     // A manually registered Test task does not inherit the test source set, so wire it
     // up explicitly; otherwise the task is NO-SOURCE and silently runs nothing.
@@ -134,13 +197,15 @@ val integrationTest by tasks.registering(Test::class) {
     }
 
     include("**/*IntegrationTest*")
+
+    // ConnectorPluginIntegrationTest loads the unpacked component archive into a real Connect worker.
+    dependsOn(connectorPlugin)
+    systemProperty("connector.plugin.dir", connectorPluginDir.get().asFile.absolutePath)
 }
 
 tasks.jar {
-    val runtimeJars = configurations.runtimeClasspath.get().filter { it.name.endsWith(".jar") }
-    from(runtimeJars.map(::zipTree))
-
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // A thin jar: runtime dependencies ship as separate jars in the component archive's lib/.
+    from("LICENSE") { into("META-INF") }
 
     manifest {
         attributes(

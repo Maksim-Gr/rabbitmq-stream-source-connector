@@ -74,4 +74,4 @@ release:
 
 files:
   artifacts:
-    - path: 'build/libs/rabbitmq-stream-source-connector-{{projectVersion}}.jar'
+    - path: 'build/distributions/maksimgr-rabbitmq-stream-source-connector-{{projectVersion}}.zip'

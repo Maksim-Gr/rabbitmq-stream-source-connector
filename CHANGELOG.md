@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Releases ship a [Confluent component archive](https://docs.confluent.io/platform/current/connect/confluent-hub/component-archive.html)
+  (`maksimgr-rabbitmq-stream-source-connector-<version>.zip`) with `manifest.json`, the connector and its dependencies
+  in `lib/`, the license and third-party notices in `doc/`, and an example config in `etc/`.
+- The build fails if a runtime dependency's license is not on the allow-list in `config/license/allowed-licenses.json`.
+
+### Changed
+- **Breaking for installers:** the single jar with bundled dependencies is no longer published. Unpack the zip into a
+  directory on `plugin.path` instead of copying a jar.
+- `docker-compose.yml` runs Apache Kafka 4.4.0 (KRaft, one broker) and a Connect worker with
+  `plugin.discovery=service_load`, loading the connector from `build/plugin`.
+
 ### Fixed
 - The connector jar now ships a `META-INF/services/org.apache.kafka.connect.source.SourceConnector` manifest, so
   Kafka Connect finds it with `plugin.discovery=service_load` (KIP-898) instead of only via classpath scanning.
