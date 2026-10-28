@@ -7,7 +7,7 @@ into Kafka topics, with at-least-once delivery, TLS/mTLS, backpressure and autom
 [![CI](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/actions/workflows/ci.yaml/badge.svg)](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/Maksim-Gr/rabbitmq-stream-source-connector?sort=semver)](https://github.com/Maksim-Gr/rabbitmq-stream-source-connector/releases)
 [![License](https://img.shields.io/github/license/Maksim-Gr/rabbitmq-stream-source-connector)](LICENSE)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 
 ## Why this connector?
 
