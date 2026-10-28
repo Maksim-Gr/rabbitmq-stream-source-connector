@@ -1,68 +1,23 @@
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-
-  kafka1:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
+  kafka:
+    image: apache/kafka:4.4.0
     ports:
-      - "9093:9093"
+      - "9092:9092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:9093
-      KAFKA_LISTENER_NAMES: PLAINTEXT
-      KAFKA_LISTENER_PORT: 9093
-      KAFKA_LISTENER_HOSTNAME: kafka1
-      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-
-  kafka2:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
-    ports:
-      - "9094:9094"
-    environment:
-      KAFKA_BROKER_ID: 2
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:9094
-      KAFKA_LISTENER_NAMES: PLAINTEXT
-      KAFKA_LISTENER_PORT: 9094
-      KAFKA_LISTENER_HOSTNAME: kafka2
-      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-
-  kafka3:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
-    ports:
-      - "9095:9095"
-    environment:
-      KAFKA_BROKER_ID: 3
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:9095
-      KAFKA_LISTENER_NAMES: PLAINTEXT
-      KAFKA_LISTENER_PORT: 9095
-      KAFKA_LISTENER_HOSTNAME: kafka3
-      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
   rabbitmq:
-    image: rabbitmq:3.12-management
+    image: rabbitmq:3.13-management
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -76,41 +31,35 @@ services:
         rabbitmq-server
       "
 
+  # Kafka Connect from the same Apache Kafka image. It loads the unpacked component archive from
+  # build/plugin (produced by ./gradlew build) and discovers plugins only via ServiceLoader manifests.
   connect:
-    image: confluentinc/cp-kafka-connect:7.5.0
+    image: apache/kafka:4.4.0
     depends_on:
-      - kafka1
-      - kafka2
-      - kafka3
+      - kafka
       - rabbitmq
     ports:
       - "8083:8083"
-    environment:
-      CONNECT_BOOTSTRAP_SERVERS: kafka1:9093,kafka2:9094,kafka3:9095
-      CONNECT_REST_PORT: 8083
-      CONNECT_GROUP_ID: "rabbit-source-connect"
-      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
-      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
-      CONNECT_STATUS_STORAGE_TOPIC: connect-status
-      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      CONNECT_PLUGIN_PATH: "/usr/share/java,/etc/kafka-connect/jars"
-      CONNECT_REST_ADVERTISED_HOST_NAME: "localhost"
-      RABBITMQ_HOST: "rabbitmq"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_CONFIG_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_STATUS_STORAGE_TOPIC_REPLICATION_FACTOR: 3
-      KAFKA_TOPIC_CREATION_REPLICATION_FACTOR: 3
     volumes:
-      - ./build/libs:/etc/kafka-connect/jars
+      - ./build/plugin:/opt/plugins:ro
     command:
       - bash
       - -c
       - |
-        while ! ls /etc/kafka-connect/jars/*.jar >/dev/null 2>&1; do sleep 1; done
-        /etc/confluent/docker/run
-
-volumes:
-  rabbitmq_stream_plugins:
+        cat > /tmp/connect-worker.properties <<'PROPS'
+        bootstrap.servers=kafka:19092
+        listeners=http://0.0.0.0:8083
+        rest.advertised.host.name=localhost
+        group.id=rabbit-source-connect
+        config.storage.topic=connect-configs
+        offset.storage.topic=connect-offsets
+        status.storage.topic=connect-status
+        config.storage.replication.factor=1
+        offset.storage.replication.factor=1
+        status.storage.replication.factor=1
+        key.converter=org.apache.kafka.connect.storage.StringConverter
+        value.converter=org.apache.kafka.connect.storage.StringConverter
+        plugin.path=/opt/plugins
+        plugin.discovery=service_load
+        PROPS
+        exec /opt/kafka/bin/connect-distributed.sh /tmp/connect-worker.properties
