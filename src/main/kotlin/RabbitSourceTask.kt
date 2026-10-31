@@ -135,6 +135,9 @@ class RabbitSourceTask : SourceTask() {
                     .stream(stream)
                     .noTrackingStrategy()
                     .offset(offsetSpec)
+                    .subscriptionListener { subscription ->
+                        ingest.subscriptionOffset(stream)?.let { subscription.offsetSpecification(OffsetSpecification.offset(it)) }
+                    }
                     .messageHandler { ctx, msg -> ingest.deliver(stream, ctx.offset(), msg) }
                     .listeners(Resource.StateListener { ctx -> ingest.stateChanged(stream, ctx.previousState(), ctx.currentState()) })
                     .build()

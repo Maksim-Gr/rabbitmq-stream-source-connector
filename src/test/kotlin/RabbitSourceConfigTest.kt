@@ -46,6 +46,16 @@ class RabbitSourceConfigTest {
     }
 
     @Test
+    fun `empty normalized stream lists are rejected by construction and REST validation`() {
+        listOf("", "   ", ", ,").forEach { streams ->
+            val props = validProps(mapOf("rabbitmq.queue" to streams))
+            assertThrows(ConfigException::class.java) { RabbitSourceConfig(props) }
+            val value = RabbitSourceConfig.CONFIG.validate(props).single { it.name() == "rabbitmq.queue" }
+            assertTrue(value.errorMessages().isNotEmpty())
+        }
+    }
+
+    @Test
     @DisplayName("Port outside 1-65535 is rejected, valid port accepted")
     fun testPortRange() {
         assertThrows(ConfigException::class.java) {
@@ -63,7 +73,7 @@ class RabbitSourceConfigTest {
         listOf("first", "last", "next", "FIRST", "01.01.2024 12:00:00").forEach { offset ->
             assertDoesNotThrow({ RabbitSourceConfig(validProps(mapOf("rabbitmq.offset" to offset))) }, "Expected '$offset' to be valid")
         }
-        listOf("earliest", "2024-01-01 12:00:00", "42abc").forEach { offset ->
+        listOf("earliest", "2024-01-01 12:00:00", "42abc", "31.02.2024 12:00:00", "29.02.2023 12:00:00").forEach { offset ->
             assertThrows(
                 ConfigException::class.java,
                 { RabbitSourceConfig(validProps(mapOf("rabbitmq.offset" to offset))) },

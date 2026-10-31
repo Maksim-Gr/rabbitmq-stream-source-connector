@@ -188,8 +188,12 @@ This writes the archive to `build/distributions/` and an unpacked copy to `build
 }
 ```
 
+Binary values used as `rabbitmq.message.key` are encoded as Base64. Binary AMQP message IDs and
+correlation IDs use the same encoding in `amqp.*` headers, so equal binary values remain stable across replays.
+
 ### Multiple queues
-Set `rabbitmq.queue` to a comma-separated list to consume from more than one stream. Queues are distributed round-robin across tasks up to `tasks.max`:
+Set `rabbitmq.queue` to a comma-separated list to consume from more than one stream. At least one nonblank
+stream name is required. Streams are distributed round-robin across tasks up to `tasks.max`:
 ```json
 {
   "rabbitmq.queue": "stream-a,stream-b,stream-c",
@@ -277,6 +281,9 @@ Internal message queue depth: 1234 / 10000 records, 5242880 / 67108864 bytes
 ```
 
 ### Connection recovery
+During reconnection, each stream resumes after the last message buffered or explicitly skipped by the task.
+An interrupted delivery is replayed; task restarts still resume from Kafka Connect's committed offsets.
+
 The connector enables automatic reconnection via the RabbitMQ Streams client's built-in recovery mechanism with a fixed back-off between retries, set by `rabbitmq.recovery.backoff.seconds` (default 5 seconds). State transitions are surfaced as log lines:
 
 | Event | Log level |

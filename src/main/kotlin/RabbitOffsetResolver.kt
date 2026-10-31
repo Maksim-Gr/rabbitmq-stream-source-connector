@@ -6,10 +6,11 @@ import org.slf4j.LoggerFactory
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.format.ResolverStyle
 
 object RabbitOffsetResolver {
     val logger: Logger = LoggerFactory.getLogger(RabbitOffsetResolver::class.java)
-    private val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
+    private val formatter = DateTimeFormatter.ofPattern("dd.MM.uuuu HH:mm:ss").withResolverStyle(ResolverStyle.STRICT)
 
     fun resolveOffset(offsetStr: String): OffsetSpecification =
         when (val normalized = offsetStr.trim().lowercase()) {
