@@ -1,6 +1,7 @@
 package com.github.maksimgr
 
 import com.rabbitmq.stream.Message
+import com.rabbitmq.stream.Properties
 import com.rabbitmq.stream.Resource
 import org.apache.kafka.connect.errors.ConnectException
 import org.junit.jupiter.api.AfterEach
@@ -131,17 +132,105 @@ class StreamIngestTest {
     }
 
     @Test
-    fun `interrupting delivery while running fails the task`() {
-        val ingest = ingest()
-        Thread.currentThread().interrupt()
+    fun `interrupted delivery can be replayed after recovery without failing the task`() {
+        val ingest = ingest("rabbitmq.queue.buffer.size" to "1")
+        ingest.deliver(STREAM, 0, message(binary = "buffered".toByteArray()))
+        val blocked = Thread { ingest.deliver(STREAM, 1, message(binary = "pending".toByteArray())) }
+        blocked.start()
         try {
-            ingest.deliver(STREAM, 3, message(binary = "interrupted".toByteArray()))
+            blocked.join(300)
+            assertTrue(blocked.isAlive)
+            blocked.interrupt()
+            blocked.join(2_000)
+            assertFalse(blocked.isAlive)
+            assertEquals(1L, ingest.subscriptionOffset(STREAM))
+            assertEquals("buffered", ingest.poll().single().value())
+            ingest.stateChanged(STREAM, Resource.State.RECOVERING, Resource.State.OPEN)
+            ingest.deliver(STREAM, 1, message(binary = "pending".toByteArray()))
+            assertEquals("pending", ingest.poll().single().value())
+        } finally {
+            ingest.close()
+            blocked.interrupt()
+            blocked.join(2_000)
+        }
+    }
+
+    @Test
+    fun `recovery pins the first interrupted message and ignores later callbacks on that thread`() {
+        val ingest = ingest()
+        assertNull(ingest.subscriptionOffset(STREAM))
+        val msg = message(binary = byteArrayOf(1))
+        // Interrupt after the callback begins, as a disconnect does during delivery.
+        `when`(msg.bodyAsBinary).thenAnswer {
+            Thread.currentThread().interrupt()
+            byteArrayOf(1)
+        }
+        try {
+            ingest.deliver(STREAM, 42, msg)
+            ingest.deliver(STREAM, 43, message(binary = byteArrayOf(2)))
         } finally {
             Thread.interrupted()
         }
+        assertEquals(42L, ingest.subscriptionOffset(STREAM))
+        assertTrue(ingest.poll().isEmpty())
+        ingest.deliver(STREAM, 42, message(binary = byteArrayOf(1)))
+        assertEquals(43L, ingest.subscriptionOffset(STREAM))
+        assertEquals(mapOf("offset" to 42L), ingest.poll().single().sourceOffset())
+    }
 
-        val error = assertThrows(ConnectException::class.java) { ingest.poll() }
-        assertTrue(error.cause?.message.orEmpty().contains("at offset 3"))
+    @Test
+    fun `recovery pins an offset even when the first callback is already interrupted`() {
+        val ingest = ingest()
+        Thread.currentThread().interrupt()
+        try {
+            ingest.deliver(STREAM, 42, message(binary = byteArrayOf(1)))
+            ingest.deliver(STREAM, 43, message(binary = byteArrayOf(2)))
+        } finally {
+            Thread.interrupted()
+        }
+        assertEquals(42L, ingest.subscriptionOffset(STREAM))
+        assertTrue(ingest.poll().isEmpty())
+    }
+
+    @Test
+    fun `recovery advances past skipped messages and preserves independent stream positions`() {
+        val config =
+            RabbitSourceConfig(
+                mapOf(
+                    "kafka.topic" to "test-topic",
+                    "rabbitmq.queue" to "one,two",
+                    "rabbitmq.username" to "guest",
+                    "rabbitmq.password" to "guest",
+                    "rabbitmq.error.handling" to "skip",
+                ),
+            )
+        val ingest = StreamIngest(config, mapOf("one" to 10L, "two" to 20L)).also { ingests += it }
+        assertEquals(10L, ingest.subscriptionOffset("one"))
+        ingest.deliver("one", 10, poisonMessage())
+        assertEquals(11L, ingest.subscriptionOffset("one"))
+        assertEquals(20L, ingest.subscriptionOffset("two"))
+    }
+
+    @Test
+    fun `equal binary properties have stable keys and AMQP headers`() {
+        listOf("messageId", "correlationId", "rawKey").forEach { source ->
+            val ingest = ingest("rabbitmq.message.key" to source, "rabbitmq.headers.amqp.enabled" to "true")
+            repeat(2) { offset ->
+                val msg = message(binary = byteArrayOf(9))
+                val props = mock(Properties::class.java)
+                `when`(props.messageId).thenReturn(byteArrayOf(1, 2, 3))
+                `when`(props.correlationId).thenReturn(byteArrayOf(1, 2, 3))
+                `when`(msg.properties).thenReturn(props)
+                `when`(msg.applicationProperties).thenReturn(mapOf("rawKey" to byteArrayOf(1, 2, 3)))
+                ingest.deliver(STREAM, offset.toLong(), msg)
+            }
+            val records = ingest.poll()
+            assertEquals(listOf("AQID", "AQID"), records.map { it.key() })
+            records.forEach { record ->
+                assertEquals("AQID", record.headers().lastWithName("amqp.messageId").value())
+                assertEquals("AQID", record.headers().lastWithName("amqp.correlationId").value())
+            }
+        }
     }
 
     @Test

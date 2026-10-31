@@ -104,6 +104,50 @@ class RabbitSourceConnectorIntegrationTest {
     }
 
     @Test
+    fun `should recover a blocked delivery after broker disconnect without losing messages`() {
+        val streamName = "backpressure_recovery"
+        createStream(streamName)
+        val values = (0..4).map { "message-$it" }
+        sendBodiesToRabbitMQ(streamName, values.map { it.toByteArray() })
+        val recoveringTask =
+            startResumeTask(
+                streamName,
+                committedOffset = null,
+                "rabbitmq.queue.buffer.size" to "1",
+                "rabbitmq.recovery.backoff.seconds" to "1",
+            )
+        try {
+            awaitBlockedDelivery()
+            val stopped = rabbitmq.execInContainer("rabbitmqctl", "stop_app")
+            try {
+                assertEquals(0, stopped.exitCode, stopped.stderr)
+            } finally {
+                val started = rabbitmq.execInContainer("rabbitmqctl", "start_app")
+                assertEquals(0, started.exitCode, started.stderr)
+            }
+            val records = pollUntil(recoveringTask, values.size, timeoutMs = 30_000)
+            assertEquals(values, records.map { it.value() })
+            assertEquals((0L..4L).toList(), records.map { it.sourceOffset()["offset"] })
+        } finally {
+            recoveringTask.stop()
+        }
+    }
+
+    private fun awaitBlockedDelivery() {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline) {
+            val blocked =
+                Thread.getAllStackTraces().any { (thread, stack) ->
+                    thread.name.startsWith("rabbitmq-stream-dispatching-") &&
+                        stack.any { it.className == RecordBuffer::class.java.name && it.methodName == "offer" }
+                }
+            if (blocked) return
+            Thread.sleep(20)
+        }
+        fail<Unit>("A RabbitMQ delivery must be blocked on the full buffer before disconnecting")
+    }
+
+    @Test
     fun `should resume from committed offset after restart`() {
         val streamName = "resume_queue"
         createStream(streamName)

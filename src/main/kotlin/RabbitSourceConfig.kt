@@ -135,6 +135,13 @@ class RabbitSourceConfig(
                 }
             }
 
+        private val STREAMS_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                if (value is List<*> && value.none { it is String && it.isNotBlank() }) {
+                    throw ConfigException(name, value, "At least one stream must be provided")
+                }
+            }
+
         private val PORT_RANGE_VALIDATOR = ConfigDef.Range.between(1, 65535)
 
         private val KEYSTORE_TYPE_VALIDATOR = choiceValidator<StoreType> { it.name }
@@ -166,6 +173,8 @@ class RabbitSourceConfig(
                 ).define(
                     CONFIG_NAME_SOURCE_RABBITMQ_QUEUES,
                     ConfigDef.Type.LIST,
+                    ConfigDef.NO_DEFAULT_VALUE,
+                    STREAMS_VALIDATOR,
                     ConfigDef.Importance.HIGH,
                     "Source RabbitMQ queue where messages are pulled.",
                     "Settings",

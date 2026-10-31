@@ -53,6 +53,17 @@ class RabbitOffsetResolverTest {
     }
 
     @Test
+    fun `timestamp rejects impossible dates and accepts leap day`() {
+        listOf("31.02.2024 12:00:00", "29.02.2023 12:00:00", "31.04.2024 12:00:00").forEach { date ->
+            assertThrows(IllegalArgumentException::class.java) { RabbitOffsetResolver.resolveOffset(date) }
+        }
+        assertEquals(
+            OffsetSpecification.timestamp(1_709_208_000_000L),
+            RabbitOffsetResolver.resolveOffset("29.02.2024 12:00:00"),
+        )
+    }
+
+    @Test
     @DisplayName("committedOffset returns null when no offset has been stored")
     fun testCommittedOffsetMissing() {
         assertNull(RabbitOffsetResolver.committedOffset(null))
