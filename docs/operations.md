@@ -20,6 +20,17 @@ Gap in stream 'orders': expected offset 1200 but received 1500. 300 message(s) a
 ```
 Size stream retention to cover the longest connector downtime you expect.
 
+Set `rabbitmq.gap.handling=fail` when a missing position must stop the pipeline. The task fails before
+buffering the message after the gap and leaves its resume position pending; a restart still uses the last
+committed offset. This policy also applies when `rabbitmq.error.handling=skip`: conversion error handling
+cannot bypass it. The default `warn` preserves the existing behavior. A first subscription with no committed
+offset has no expected position until its first delivery, so it cannot detect messages removed before that
+delivery. Rewinds continue to warn and replay under either policy.
+
+After a gap failure, investigate retention and recover missing data from an upstream archive or another
+source. Restarting alone cannot restore expired messages. If you explicitly accept the gap, change the
+policy to `warn`, resume, and record the accepted missing range before restoring `fail`.
+
 If the stream instead delivers an offset earlier than the expected one, the connector logs a WARN and
 the messages in between are written to Kafka again:
 ```
@@ -94,3 +105,55 @@ The connector enables automatic reconnection via the RabbitMQ Streams client's b
 If a consumer closes for good (for example the stream was deleted, or recovery gave up), the task
 fails on its next `poll()` instead of staying `RUNNING` without consuming anything. Monitor the
 task status or enable restarts on your platform so this is noticed.
+
+For clustered deployments, configure [multiple bootstrap endpoints](configuration.md#cluster-bootstrap-endpoints).
+Replicated streams and reachable advertised addresses are required for recovery after losing a leader.
+
+## Metrics and alerts
+
+On Kafka Connect 4.1+, the connector registers numeric metrics through the worker's plugin metrics registry.
+They are exposed by the worker's JMX reporter under the following object names (property order may vary):
+
+```text
+kafka.connect:type=plugins,connector=<name>,task=<id>,component=rabbitmq-stream
+kafka.connect:type=plugins,connector=<name>,task=<id>,component=rabbitmq-stream,stream=<stream>
+```
+
+Connect 4.0 continues to operate and logs a warning that these connector metrics are unavailable.
+Metrics reset whenever a task starts and are removed when it stops. Stream labels are limited to streams
+assigned to that task. Names and values describe RabbitMQ delivery into the buffer, **not Kafka acknowledgements**.
+
+| Scope | Attribute | Meaning |
+|-------|-----------|---------|
+| Task | `buffer-records`, `buffer-bytes` | Current buffered record count and message body bytes |
+| Task | `buffer-record-capacity`, `buffer-byte-capacity` | Configured buffer limits; the byte limit permits one oversized body |
+| Stream | `received-total` | Delivery attempts observed, including conversion failures and replays |
+| Stream | `buffered-total` | Records accepted into the buffer |
+| Stream | `last-buffered-offset` | Most recently buffered offset, or `-1` before the first buffered record; may decrease on rewind |
+| Stream | `last-received-time-ms` | Wall-clock time of the last delivery attempt, or `-1` before any attempt |
+| Stream | `skipped-total` | Messages discarded by conversion error handling |
+| Stream | `gaps-total`, `missing-offsets-total` | Forward jumps and the total number of skipped offset positions |
+| Stream | `rewinds-total` | Backward jumps |
+| Stream | `recoveries-total`, `recovering` | Recovery attempts and current state (`1` recovering, `0` otherwise) |
+| Stream | `recovery-seconds-total` | Time spent recovering, including the current recovery |
+| Stream | `blocked-seconds-total` | Time waiting on a full buffer, including the current wait |
+
+The timestamp detects a quiet input, not a Kafka delivery stall; alert on it only for streams with expected
+traffic. Missing offset positions are an indication of a continuity gap, not a measurement of current source lag.
+Use Connect's standard source-record write/active metrics and offset-commit failure metrics alongside these
+attributes to detect Kafka-side stalls. Independently monitor worker availability and the Connect task-status
+REST endpoint: failed or absent tasks may have no connector metrics left to scrape.
+
+Example [JMX exporter rules](../examples/monitoring/jmx-exporter.yaml) map these attributes to Prometheus names;
+merge them into your worker's existing exporter configuration. Example [Prometheus alerts](../examples/monitoring/alerts.yaml)
+cover gaps, skipped messages, sustained recovery, buffer saturation, and quiet inputs. Adjust thresholds to your
+recovery objectives and expected traffic, and route the alerts through your existing monitoring setup.
+
+## Recovery verification
+
+The Docker integration suite runs the packaged plugin in two distributed Connect workers with Kafka's real
+offset store and a three-node RabbitMQ cluster. It verifies complete delivery of publisher-confirmed message
+IDs through simultaneous worker crashes, reassignment to a surviving worker and subsequent rejoining, a Kafka
+write outage, stream-leader loss, and startup with an unavailable bootstrap endpoint. Tests report observed
+duplicate counts; at-least-once delivery permits duplicates. Run it locally with `./gradlew integrationTest`.
+The CI workflow runs integration tests for pull requests, avoiding a second run on the subsequent push to `main`.

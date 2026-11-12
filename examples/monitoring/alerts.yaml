@@ -1,0 +1,47 @@
+# Metric names match jmx-exporter.yaml. Enable quiet-input alerts only where traffic is expected.
+# Also monitor Connect task status and scrape availability; stopped tasks remove their metrics.
+groups:
+  - name: rabbitmq-stream-source
+    rules:
+      - alert: RabbitSourceOffsetGap
+        expr: rabbitmq_stream_gaps_total > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Source continuity gap on {{ $labels.connector }}/{{ $labels.stream }}'
+          description: 'Investigate retention and missing data. A failed task can disappear from these metrics; also monitor Connect status.'
+      - alert: RabbitSourceSkippedMessages
+        expr: rabbitmq_stream_skipped_total > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Messages discarded by {{ $labels.connector }}/{{ $labels.stream }}'
+          description: 'Inspect conversion errors and recover rejected source messages if required. Counters reset on task restart.'
+      - alert: RabbitSourceRecoveryStalled
+        expr: rabbitmq_stream_recovering == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Prolonged RabbitMQ recovery on {{ $labels.connector }}/{{ $labels.stream }}'
+          description: 'Check node availability, advertised addresses, network access, and credentials.'
+      - alert: RabbitSourceBufferSaturated
+        expr: >-
+          rabbitmq_stream_buffer_records / rabbitmq_stream_buffer_record_capacity > 0.9
+          or rabbitmq_stream_buffer_bytes / rabbitmq_stream_buffer_byte_capacity > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Sustained backpressure on {{ $labels.connector }} task {{ $labels.task }}'
+          description: 'Check Kafka producer errors, write throughput, and source retention headroom before increasing the buffer.'
+      - alert: RabbitSourceInputQuiet
+        expr: >-
+          (time() - rabbitmq_stream_last_received_time_ms / 1000 > 300)
+          and (rabbitmq_stream_last_received_time_ms > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No recent delivery attempts on {{ $labels.connector }}/{{ $labels.stream }}'
+          description: 'Enable only for streams with expected traffic. Check upstream publishers, recovery, and backpressure.'

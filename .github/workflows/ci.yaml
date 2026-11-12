@@ -50,4 +50,15 @@ jobs:
         run: ./gradlew build -x integrationTest --no-daemon --console=plain
 
       - name: Run Integration Tests
+        if: github.event_name == 'pull_request'
         run: ./gradlew integrationTest --no-daemon --console=plain
+
+      - name: Upload integration test reports
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-reports
+          path: |
+            build/reports/tests/integrationTest
+            build/test-results/integrationTest
+          if-no-files-found: ignore

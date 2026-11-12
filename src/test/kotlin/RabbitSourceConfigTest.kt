@@ -247,4 +247,30 @@ class RabbitSourceConfigTest {
         assertEquals(listOf("a", "b"), RabbitSourceConfig(taskProps).streams)
         assertEquals(props - "rabbitmq.queue", taskProps - "rabbitmq.queue")
     }
+
+    @Test
+    fun `bootstrap endpoints accept hostnames and IPv6 without changing legacy defaults`() {
+        assertTrue(RabbitSourceConfig(validProps()).bootstrapUris.isEmpty())
+        val config = RabbitSourceConfig(validProps(mapOf("rabbitmq.bootstrap.servers" to "node-a:5552, [::1]:5553,node-a:5552")))
+        assertEquals(listOf("rabbitmq-stream://node-a:5552", "rabbitmq-stream://[::1]:5553"), config.bootstrapUris)
+    }
+
+    @Test
+    fun `invalid bootstrap endpoints are rejected by construction and REST validation`() {
+        listOf("node", "node:0", "node:65536", "user:secret@node:5552", "node:5552/vhost", "https://node:5552", "node:5552?x=1")
+            .forEach { endpoint ->
+                val props = validProps(mapOf("rabbitmq.bootstrap.servers" to endpoint))
+                assertThrows(ConfigException::class.java) { RabbitSourceConfig(props) }
+                val value = RabbitSourceConfig.CONFIG.validate(props).single { it.name() == "rabbitmq.bootstrap.servers" }
+                assertTrue(value.errorMessages().isNotEmpty())
+                assertFalse(value.errorMessages().joinToString().contains("secret"))
+            }
+    }
+
+    @Test
+    fun `gap handling defaults to warn and validates its choices`() {
+        assertEquals(GapHandling.WARN, RabbitSourceConfig(validProps()).gapHandling)
+        assertEquals(GapHandling.FAIL, RabbitSourceConfig(validProps(mapOf("rabbitmq.gap.handling" to " FAIL "))).gapHandling)
+        assertThrows(ConfigException::class.java) { RabbitSourceConfig(validProps(mapOf("rabbitmq.gap.handling" to "skip"))) }
+    }
 }

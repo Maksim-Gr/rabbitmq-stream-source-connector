@@ -69,6 +69,7 @@ class StreamIngest(
     private val streams: Map<String, StreamState> =
         resumeOffsets.mapValues { (stream, offset) -> StreamState(RabbitOffsetResolver.sourcePartition(stream), offset) }
     private val buffer = RecordBuffer(config.bufferMaxRecords, config.bufferMaxBytes)
+    internal val metrics = IngestMetrics(config, buffer, resumeOffsets.keys)
     private val running = AtomicBoolean(true)
 
     @Volatile
@@ -88,12 +89,18 @@ class StreamIngest(
             // Pin even a first/last/next subscription to its first observed offset before an offer can be interrupted.
             state.expectedOffset.compareAndSet(NO_EXPECTED_OFFSET, offset)
             if (Thread.currentThread().isInterrupted) return
+            val metrics = metrics.streams.getValue(stream)
+            metrics.received.incrementAndGet()
+            metrics.lastReceivedTimeMillis.set(System.currentTimeMillis())
+            // A gap policy is independent of conversion error handling: skip must never bypass fail-on-gap.
+            if (!checkContinuity(stream, state, offset)) return
             try {
                 logger.debug("Received message at offset {}", offset)
-                checkContinuity(stream, state, offset)
                 val body = message.bodyBytes()
-                if (enqueue(toRecord(state.partition, offset, message, body), body?.size?.toLong() ?: 0L)) {
+                if (enqueue(toRecord(state.partition, offset, message, body), body?.size?.toLong() ?: 0L, metrics)) {
                     state.expectedOffset.set(offset + 1)
+                    metrics.buffered.incrementAndGet()
+                    metrics.lastBufferedOffset.set(offset)
                 }
             } catch (e: InterruptedException) {
                 // The client interrupts its delivery executor on connection loss. Leave this offset pending so
@@ -105,6 +112,7 @@ class StreamIngest(
                     ErrorHandling.SKIP -> {
                         logger.error("Skipping message from stream '$stream' at offset $offset (rabbitmq.error.handling=skip)", e)
                         state.expectedOffset.set(offset + 1)
+                        metrics.skipped.incrementAndGet()
                     }
                     ErrorHandling.FAIL -> {
                         logger.error("Error processing message from stream '$stream' at offset $offset", e)
@@ -129,14 +137,20 @@ class StreamIngest(
         previous: Resource.State?,
         current: Resource.State,
     ) {
+        val metrics = metrics.streams.getValue(stream)
         when (current) {
-            Resource.State.RECOVERING ->
+            Resource.State.RECOVERING -> {
+                metrics.recovering()
                 logger.warn("Consumer for '$stream' is recovering (previous state: $previous)")
-            Resource.State.OPEN ->
+            }
+            Resource.State.OPEN -> {
+                metrics.recovered()
                 if (previous == Resource.State.RECOVERING) {
                     logger.info("Consumer for '$stream' recovered successfully")
                 }
-            Resource.State.CLOSED ->
+            }
+            Resource.State.CLOSED -> {
+                metrics.recovered()
                 if (running.get()) {
                     val text = "Consumer for '$stream' closed unexpectedly (previous state: $previous)"
                     logger.error(text)
@@ -144,6 +158,7 @@ class StreamIngest(
                     // task that no longer receives messages.
                     failure = ConnectException(text)
                 }
+            }
             else -> {}
         }
     }
@@ -160,39 +175,60 @@ class StreamIngest(
     override fun close() {
         running.set(false)
         buffer.clear()
+        metrics.streams.values.forEach { it.recovered() }
+        metrics.close()
     }
 
     private fun checkContinuity(
         stream: String,
         state: StreamState,
         offset: Long,
-    ) {
+    ): Boolean {
         val expected = state.expectedOffset.get()
-        if (expected == NO_EXPECTED_OFFSET) return
+        if (expected == NO_EXPECTED_OFFSET) return true
+        val metrics = metrics.streams.getValue(stream)
         if (offset > expected) {
-            logger.warn(
+            metrics.gaps.incrementAndGet()
+            metrics.missingOffsets.addAndGet(offset - expected)
+            val text =
                 "Gap in stream '$stream': expected offset $expected but received $offset. " +
                     "${offset - expected} message(s) are no longer in the stream (likely removed by retention) " +
-                    "and were not delivered to Kafka.",
-            )
+                    "and were not delivered to Kafka."
+            if (config.gapHandling == GapHandling.FAIL) {
+                logger.error(text)
+                failure = ConnectException(text)
+                return false
+            }
+            logger.warn(text)
         } else if (offset < expected) {
+            metrics.rewinds.incrementAndGet()
             logger.warn(
                 "Stream '$stream' rewound: expected offset $expected but received $offset. " +
                     "${expected - offset} message(s) will be delivered to Kafka again.",
             )
         }
+        return true
     }
 
     private fun enqueue(
         record: SourceRecord,
         sizeBytes: Long,
+        metrics: StreamMetrics,
     ): Boolean {
         // Bounded wait instead of put(): a full buffer must not block close(). A record dropped
         // here was never handed to Kafka, so its offset is not committed and it is re-read on restart.
-        while (running.get()) {
-            if (buffer.offer(record, sizeBytes, ENQUEUE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) return true
+        if (!running.get()) return false
+        if (buffer.offer(record, sizeBytes, 0, TimeUnit.MILLISECONDS)) return true
+        metrics.blocked.start()
+        try {
+            var enqueued = false
+            while (running.get() && !enqueued) {
+                enqueued = buffer.offer(record, sizeBytes, ENQUEUE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            }
+            return enqueued
+        } finally {
+            metrics.blocked.stop()
         }
-        return false
     }
 
     private fun toRecord(

@@ -5,11 +5,14 @@ import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.config.ConfigDef
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.config.types.Password
+import java.net.URI
 import java.time.Duration
 
 enum class MessageFormat { STRING, BYTES }
 
 enum class ErrorHandling { FAIL, SKIP }
+
+enum class GapHandling { WARN, FAIL }
 
 enum class StoreType { JKS, PKCS12 }
 
@@ -33,6 +36,7 @@ class RabbitSourceConfig(
 
     val host: String = getString(RABBITMQ_HOST)
     val port: Int = getInt(RABBITMQ_PORT)
+    val bootstrapUris: List<String> = getList(RABBITMQ_BOOTSTRAP_SERVERS).map { "rabbitmq-stream://${it.trim()}" }.distinct()
     val username: String = getString(RABBITMQ_USERNAME)
     val password: Password = getPassword(RABBITMQ_PASSWORD)
     val virtualHost: String = getString(RABBITMQ_VIRTUAL_HOST)
@@ -63,6 +67,7 @@ class RabbitSourceConfig(
 
     val messageKeySource: String? = getString(RABBITMQ_MESSAGE_KEY).trim().ifEmpty { null }
     val errorHandling: ErrorHandling = choice(RABBITMQ_ERROR_HANDLING)
+    val gapHandling: GapHandling = choice(RABBITMQ_GAP_HANDLING)
 
     private fun store(
         pathKey: String,
@@ -78,10 +83,12 @@ class RabbitSourceConfig(
         parseChoice<E>(getString(key)) ?: error("'$key' passed validation but is not a ${E::class.simpleName}")
 
     companion object {
+        private const val MAX_PORT = 65535
         private const val CONFIG_NAME_DESTINATION_KAFKA_TOPIC = "kafka.topic"
         private const val CONFIG_NAME_SOURCE_RABBITMQ_QUEUES = "rabbitmq.queue"
         private const val RABBITMQ_HOST = "rabbitmq.host"
         private const val RABBITMQ_PORT = "rabbitmq.port"
+        private const val RABBITMQ_BOOTSTRAP_SERVERS = "rabbitmq.bootstrap.servers"
         private const val RABBITMQ_USERNAME = "rabbitmq.username"
         private const val RABBITMQ_PASSWORD = "rabbitmq.password"
         private const val RABBITMQ_VIRTUAL_HOST = "rabbitmq.virtual.host"
@@ -105,6 +112,7 @@ class RabbitSourceConfig(
         private const val RABBITMQ_RECOVERY_BACKOFF_SECONDS = "rabbitmq.recovery.backoff.seconds"
         private const val RABBITMQ_POLL_MAX_BATCH_SIZE = "rabbitmq.poll.max.batch.size"
         private const val RABBITMQ_ERROR_HANDLING = "rabbitmq.error.handling"
+        private const val RABBITMQ_GAP_HANDLING = "rabbitmq.gap.handling"
 
         fun forStreams(
             props: Map<String, String>,
@@ -127,6 +135,23 @@ class RabbitSourceConfig(
         private val MESSAGE_FORMAT_VALIDATOR = choiceValidator<MessageFormat> { it.name.lowercase() }
 
         private val ERROR_HANDLING_VALIDATOR = choiceValidator<ErrorHandling> { it.name.lowercase() }
+
+        private val GAP_HANDLING_VALIDATOR = choiceValidator<GapHandling> { it.name.lowercase() }
+
+        private val BOOTSTRAP_SERVERS_VALIDATOR =
+            ConfigDef.Validator { name, value ->
+                (value as? List<*>)?.forEach { endpoint ->
+                    val uri = runCatching { URI("rabbitmq-stream://${endpoint.toString().trim()}") }.getOrNull()
+                    if (uri == null || !validEndpoint(uri)) {
+                        // Do not echo invalid endpoints: they may contain accidentally pasted credentials.
+                        throw ConfigException("$name entries must be host:port or [IPv6]:port, without credentials or paths")
+                    }
+                }
+            }
+
+        private fun validEndpoint(uri: URI): Boolean =
+            !uri.host.isNullOrBlank() && uri.port in 1..MAX_PORT && uri.rawPath.isNullOrEmpty() &&
+                listOf(uri.rawUserInfo, uri.rawQuery, uri.rawFragment).all { it == null }
 
         private val NON_EMPTY_STRING_VALIDATOR =
             ConfigDef.Validator { name, value ->
@@ -203,6 +228,13 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "RabbitMQ Port",
+                ).define(
+                    RABBITMQ_BOOTSTRAP_SERVERS,
+                    ConfigDef.Type.LIST,
+                    emptyList<String>(),
+                    BOOTSTRAP_SERVERS_VALIDATOR,
+                    ConfigDef.Importance.HIGH,
+                    "Optional comma-separated host:port endpoints in one RabbitMQ cluster. Overrides rabbitmq.host and rabbitmq.port.",
                 ).define(
                     RABBITMQ_USERNAME,
                     ConfigDef.Type.STRING,
@@ -429,6 +461,14 @@ class RabbitSourceConfig(
                     -1,
                     ConfigDef.Width.SHORT,
                     "Poll Max Batch Size",
+                ).define(
+                    RABBITMQ_GAP_HANDLING,
+                    ConfigDef.Type.STRING,
+                    "warn",
+                    GAP_HANDLING_VALIDATOR,
+                    ConfigDef.Importance.HIGH,
+                    "Action when a stream jumps past its expected offset: 'warn' continues; " +
+                        "'fail' stops before accepting the later message.",
                 ).define(
                     RABBITMQ_ERROR_HANDLING,
                     ConfigDef.Type.STRING,

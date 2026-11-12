@@ -163,6 +163,9 @@ val connectorArchive by tasks.registering(Zip::class) {
         }
         into("etc") {
             from("examples/connector.properties")
+            into("monitoring") {
+                from("examples/monitoring")
+            }
         }
     }
 }
