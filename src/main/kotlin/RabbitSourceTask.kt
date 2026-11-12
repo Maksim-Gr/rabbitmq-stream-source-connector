@@ -56,6 +56,8 @@ class RabbitSourceTask : SourceTask() {
                     .requestedHeartbeat(config.requestedHeartbeat)
                     .recoveryBackOffDelayPolicy(BackOffDelayPolicy.fixed(config.recoveryBackoff))
 
+            if (config.bootstrapUris.isNotEmpty()) envBuilder.uris(config.bootstrapUris)
+
             config.tls?.let { tls ->
                 envBuilder.tls().sslContext(buildSslContext(tls)).environmentBuilder()
             }
@@ -117,6 +119,7 @@ class RabbitSourceTask : SourceTask() {
             }
         // Created before the consumers: they dispatch as soon as they are built.
         val ingest = StreamIngest(config, resumeOffsets).also { this.ingest = it }
+        registerMetrics(ingest)
 
         streams.forEach { stream ->
             val resumeOffset = resumeOffsets[stream]
@@ -144,6 +147,17 @@ class RabbitSourceTask : SourceTask() {
             consumers.add(consumer)
         }
         logger.info("Started consuming RabbitMQ streams: $streams (configured offset: ${config.configuredOffset})")
+    }
+
+    private fun registerMetrics(ingest: StreamIngest) {
+        try {
+            context.pluginMetrics()?.let { ingest.metrics.register(it) }
+        } catch (_: NoSuchMethodError) {
+            // PluginMetrics was added in Connect 4.1; preserve operation on earlier 4.x workers.
+            logger.warn("Connector metrics require Kafka Connect 4.1 or newer")
+        } catch (_: NoClassDefFoundError) {
+            logger.warn("Connector metrics require Kafka Connect 4.1 or newer")
+        }
     }
 
     private fun buildSslContext(tls: TlsSettings): SslContext {

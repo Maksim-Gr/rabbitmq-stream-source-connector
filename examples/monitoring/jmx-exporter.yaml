@@ -1,0 +1,24 @@
+# Merge these rules into the Kafka Connect worker's JMX exporter configuration.
+# Lookaheads permit arbitrary ObjectName property ordering. JMX exporter normalizes hyphens to underscores.
+lowercaseOutputName: true
+rules:
+  - pattern: 'kafka.connect<(?=[^>]*type=plugins)(?=[^>]*connector=([^,>]+))(?=[^>]*task=([^,>]+))(?=[^>]*component=rabbitmq-stream)(?=[^>]*stream=([^,>]+))[^>]*><>([^:]+)-total:'
+    name: rabbitmq_stream_$4_total
+    type: COUNTER
+    labels:
+      connector: '$1'
+      task: '$2'
+      stream: '$3'
+  - pattern: 'kafka.connect<(?=[^>]*type=plugins)(?=[^>]*connector=([^,>]+))(?=[^>]*task=([^,>]+))(?=[^>]*component=rabbitmq-stream)(?=[^>]*stream=([^,>]+))[^>]*><>([^:]+):'
+    name: rabbitmq_stream_$4
+    type: GAUGE
+    labels:
+      connector: '$1'
+      task: '$2'
+      stream: '$3'
+  - pattern: 'kafka.connect<(?=[^>]*type=plugins)(?=[^>]*connector=([^,>]+))(?=[^>]*task=([^,>]+))(?=[^>]*component=rabbitmq-stream)[^>]*><>([^:]+):'
+    name: rabbitmq_stream_$3
+    type: GAUGE
+    labels:
+      connector: '$1'
+      task: '$2'

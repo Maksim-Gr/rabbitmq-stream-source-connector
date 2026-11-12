@@ -264,6 +264,27 @@ class StreamIngestTest {
     }
 
     @Test
+    fun `fail on gap preserves the pending offset even when conversion errors are skipped`() {
+        val ingest = ingest("rabbitmq.gap.handling" to "fail", "rabbitmq.error.handling" to "skip", resumeOffset = 10)
+        ingest.deliver(STREAM, 15, message(binary = "after-gap".toByteArray()))
+        ingest.deliver(STREAM, 16, message(binary = "later".toByteArray()))
+
+        val error = assertThrows(ConnectException::class.java) { ingest.poll() }
+        assertTrue(error.cause?.message.orEmpty().contains("expected offset 10 but received 15"))
+        assertEquals(10L, ingest.subscriptionOffset(STREAM))
+        assertEquals(0L, ingest.metrics.streams.getValue(STREAM).buffered.get())
+        assertEquals(0L, ingest.metrics.streams.getValue(STREAM).skipped.get())
+    }
+
+    @Test
+    fun `fail on gap accepts an unknown first offset and does not reject rewinds`() {
+        val ingest = ingest("rabbitmq.gap.handling" to "fail")
+        ingest.deliver(STREAM, 42, message(binary = "first".toByteArray()))
+        ingest.deliver(STREAM, 40, message(binary = "rewound".toByteArray()))
+        assertEquals(listOf("first", "rewound"), ingest.poll().map { it.value() })
+    }
+
+    @Test
     fun `delivery for a stream this task does not consume is rejected`() {
         assertThrows(IllegalStateException::class.java) {
             ingest().deliver("other", 0, message(binary = "x".toByteArray()))

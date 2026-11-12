@@ -10,6 +10,7 @@
 | rabbitmq.queue                             | —       | Comma-separated list of RabbitMQ stream names to consume from |
 | rabbitmq.host                              | `localhost` | Hostname of the RabbitMQ broker |
 | rabbitmq.port                              | `5552`  | Port of the RabbitMQ Streams protocol (not the AMQP port 5672) |
+| rabbitmq.bootstrap.servers                 | empty | Optional comma-separated `host:port` endpoints in the same RabbitMQ cluster. Overrides `rabbitmq.host` and `rabbitmq.port`; credentials, virtual host, and TLS still use their existing settings. IPv6 endpoints use `[address]:port` |
 | rabbitmq.username                          | —       | Username for connecting to RabbitMQ |
 | rabbitmq.password                          | —       | Password for connecting to RabbitMQ |
 | rabbitmq.virtual.host                      | `/`     | Virtual host on RabbitMQ to connect to |
@@ -32,6 +33,7 @@
 | rabbitmq.recovery.backoff.seconds          | `5`     | Fixed back-off in seconds between connection recovery attempts |
 | rabbitmq.poll.max.batch.size               | `1000`  | Maximum number of records returned from a single `poll()` call |
 | rabbitmq.error.handling                    | `fail`  | Action when a message cannot be converted into a Kafka record: `fail` stops the task with an error, `skip` logs the error (stream and offset), drops the message and continues. See [Error handling](operations.md#error-handling) |
+| rabbitmq.gap.handling                      | `warn` | Action when delivery jumps past an expected stream offset: `warn` logs and continues; `fail` stops the task before accepting the later message. Independent of `rabbitmq.error.handling` |
 
 
 ## Connector config
@@ -87,3 +89,19 @@ stream name is required. Streams are distributed round-robin across tasks up to 
   "tasks.max": "3"
 }
 ```
+
+## Cluster bootstrap endpoints
+
+```json
+{
+  "rabbitmq.bootstrap.servers": "rabbit-1.example.com:5552,rabbit-2.example.com:5552,rabbit-3.example.com:5552",
+  "rabbitmq.gap.handling": "fail"
+}
+```
+
+The client can start when one endpoint is unavailable and reconnect using surviving nodes. All endpoints
+must belong to the same cluster and accept the configured credentials and virtual host. The client also
+connects to addresses advertised by the stream leader and replicas: every advertised address must resolve
+and be reachable from every Connect worker. Bootstrap endpoints do not rewrite broker metadata or act as
+a proxy. Configure RabbitMQ's `stream.advertised_host` and `stream.advertised_port` (and their TLS equivalents)
+for the worker network. Use each endpoint's TLS port when `rabbitmq.tls.enabled=true`.
