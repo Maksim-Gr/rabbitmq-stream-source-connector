@@ -13,7 +13,7 @@ plugins {
 
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
-    id("com.github.jk1.dependency-license-report") version "3.1.4"
+    id("com.github.jk1.dependency-license-report") version "3.1.5"
 }
 
 group = "com.github.maksimgr"
@@ -49,7 +49,7 @@ dependencies {
     // Only depend on the slf4j API; the Connect runtime supplies the logging backend.
     implementation("org.slf4j:slf4j-api:2.0.20")
 
-    implementation("com.rabbitmq:stream-client:1.12.0")
+    implementation("com.rabbitmq:stream-client:1.13.1")
 
     // The Connect APIs are compileOnly for the plugin, so tests must bring them in
     // explicitly (at runtime) to exercise the connector code.
@@ -57,7 +57,7 @@ dependencies {
     testImplementation("org.apache.kafka:kafka-clients:4.4.0")
 
     // Logging backend for local test runs only (not shipped in the plugin jar).
-    testRuntimeOnly("ch.qos.logback:logback-classic:1.6.5")
+    testRuntimeOnly("ch.qos.logback:logback-classic:1.6.6")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
