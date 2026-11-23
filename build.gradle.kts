@@ -57,7 +57,7 @@ dependencies {
     testImplementation("org.apache.kafka:kafka-clients:4.4.0")
 
     // Logging backend for local test runs only (not shipped in the plugin jar).
-    testRuntimeOnly("ch.qos.logback:logback-classic:1.6.6")
+    testRuntimeOnly("ch.qos.logback:logback-classic:1.6.8")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
