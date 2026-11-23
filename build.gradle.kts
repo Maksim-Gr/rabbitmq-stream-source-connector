@@ -73,7 +73,7 @@ dependencies {
     testImplementation("org.sourcelab:kafka-connect-client:4.0.5")
     testImplementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
-    testImplementation("com.rabbitmq:amqp-client:5.37.1")
+    testImplementation("com.rabbitmq:amqp-client:5.38.0")
 }
 
 kotlin {
